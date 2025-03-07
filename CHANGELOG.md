@@ -1,5 +1,11 @@
 # nsite-gateway
 
+## 0.7.0
+
+### Minor Changes
+
+- 023e03e: Rename package to nsite-gateway
+
 ## 0.6.1
 
 ### Patch Changes
