@@ -1,12 +1,12 @@
-# nsite-ts
+# nsite-gateway
 
-A Typescript implementation of [nsite](https://github.com/lez/nsite)
+A Typescript implementation of [static websites on nostr](https://github.com/nostr-protocol/nips/pull/1538)
 
 ## Running with docker-compose
 
 ```sh
-git clone https://github.com/hzrd149/nsite-ts.git
-cd nsite-ts
+git clone https://github.com/hzrd149/nsite-gateway.git
+cd nsite-gateway
 docker compose up
 ```
 
@@ -16,24 +16,25 @@ If you need to test, you can directly access the ts server at `http://localhost:
 
 ## Running with docker
 
-The `ghcr.io/hzrd149/nsite-ts` image can be used to run a http instance locally
+The `ghcr.io/hzrd149/nsite-gateway` image can be used to run a http instance locally
 
 ```sh
-docker run --rm -it --name nsite -p 8080:80 ghcr.io/hzrd149/nsite-ts
+docker run --rm -it --name nsite -p 8080:80 ghcr.io/hzrd149/nsite-gateway
 ```
 
 ## Manual nginx setup
 
-Before manually setting up nginx and nsite-ts you need a few things installed
- - [nginx](https://nginx.org/)
- - [nodejs](https://nodejs.org/en/download/package-manager) (dep packages [here](https://deb.nodesource.com/))
- - [pnpm](https://pnpm.io/) run `npm i -g pnpm` to install
+Before manually setting up nginx and nsite-gateway you need a few things installed
 
-Next your going to need to clone the nsite-ts repo and set it up
+- [nginx](https://nginx.org/)
+- [nodejs](https://nodejs.org/en/download/package-manager) (dep packages [here](https://deb.nodesource.com/))
+- [pnpm](https://pnpm.io/) run `npm i -g pnpm` to install
+
+Next your going to need to clone the nsite-gateway repo and set it up
 
 ```sh
-git clone https://github.com/hzrd149/nsite-ts
-cd nsite-ts
+git clone https://github.com/hzrd149/nsite-gateway
+cd nsite-gateway
 
 # install dependencies
 pnpm install
@@ -63,7 +64,7 @@ sudo systemctl daemon-reload
 sudo systemctl start nsite
 ```
 
-Then once nsite-ts is running, next you need to configure nginx
+Then once nsite-gateway is running, next you need to configure nginx
 
 Start by modifying the `/etx/nginx/nginx.conf` file and adding a `proxy_cache_path` to the `http` section
 
@@ -78,9 +79,10 @@ http {
 ```
 
 Next modify the default site config (usually `/etx/nginx/sites-enabled/default` or `/etc/nginx/conf.d/default.conf`) to be one of
- - [nginx/http.conf](./nginx/http.conf)
- - [nginx/tls.conf](./nginx/tls.conf)
- - [nginx/tls-and-tor.conf](./nginx/tls-and-tor.conf)
+
+- [nginx/http.conf](./nginx/http.conf)
+- [nginx/tls.conf](./nginx/tls.conf)
+- [nginx/tls-and-tor.conf](./nginx/tls-and-tor.conf)
 
 Once that is done you can restart nginx and you should have a new nsite server running on port 80
 

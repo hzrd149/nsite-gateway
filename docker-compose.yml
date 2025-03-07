@@ -3,7 +3,7 @@ version: "3.7"
 services:
   nsite:
     build: .
-    image: ghcr.io/hzrd149/nsite-ts:master
+    image: ghcr.io/hzrd149/nsite-gateway:master
     environment:
       LOOKUP_RELAYS: wss://user.kindpag.es,wss://purplepag.es
       SUBSCRIPTION_RELAYS: wss://nostrue.com/,wss://nos.lol/,wss://relay.damus.io/,wss://purplerelay.com/
