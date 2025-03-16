@@ -4,17 +4,18 @@ const { http, https } = followRedirects;
 
 import agent from "../proxy.js";
 
-export function makeRequestWithAbort(url: URL) {
-  return new Promise<{ response: IncomingMessage; controller: AbortController }>((res, rej) => {
-    const cancelController = new AbortController();
+export function makeRequestWithAbort(url: URL, controller: AbortController) {
+  return new Promise<IncomingMessage>((res, rej) => {
+    controller.signal.addEventListener("abort", () => rej(new Error("Aborted")));
+
     const request = (url.protocol === "https:" ? https : http).get(
       url,
       {
-        signal: cancelController.signal,
+        signal: controller.signal,
         agent,
       },
       (response) => {
-        res({ response, controller: cancelController });
+        res(response);
       },
     );
     request.on("error", (err) => rej(err));
