@@ -1,5 +1,11 @@
 # nsite-gateway
 
+## 0.8.0
+
+### Minor Changes
+
+- b2b8e01: Make blossom requests in parallel
+
 ## 0.7.0
 
 ### Minor Changes
