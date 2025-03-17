@@ -14,13 +14,12 @@ import { spawn } from "node:child_process";
 import { nip19 } from "nostr-tools";
 
 import { resolveNpubFromHostname } from "./helpers/dns.js";
-import { getNsiteBlobs, parseNsiteEvent } from "./events.js";
-import { downloadFile, getUserBlossomServers } from "./blossom.js";
+import { getNsiteBlobs } from "./events.js";
+import { downloadBlob } from "./blossom.js";
 import {
   BLOSSOM_SERVERS,
   ENABLE_SCREENSHOTS,
   HOST,
-  NGINX_CACHE_DIR,
   NSITE_HOMEPAGE,
   NSITE_HOMEPAGE_DIR,
   NSITE_HOST,
@@ -29,9 +28,9 @@ import {
   SUBSCRIPTION_RELAYS,
 } from "./env.js";
 import { userDomains, userRelays, userServers } from "./cache.js";
-import { invalidatePubkeyPath } from "./nginx.js";
-import pool, { getUserOutboxes, subscribeForEvents } from "./nostr.js";
+import pool, { getUserBlossomServers, getUserOutboxes } from "./nostr.js";
 import logger from "./logger.js";
+import { watchInvalidation } from "./invalidation.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -79,96 +78,100 @@ app.use(async (ctx, next) => {
     }
   }
 
-  if (pubkey) {
-    const npub = npubEncode(pubkey);
-    const log = logger.extend(npub);
-    ctx.state.pubkey = pubkey;
+  if (!pubkey) return await next();
 
-    let relays = await userRelays.get<string[] | undefined>(pubkey);
+  const npub = npubEncode(pubkey);
+  const log = logger.extend(npub);
+  ctx.state.pubkey = pubkey;
 
-    // fetch relays if not in cache
-    if (!relays) {
-      log(`Fetching relays`);
+  let relays = await userRelays.get<string[] | undefined>(pubkey);
 
-      relays = await getUserOutboxes(pubkey);
-      if (relays) {
-        await userRelays.set(pubkey, relays);
-        log(`Found ${relays.length} relays`);
-      } else {
-        relays = [];
-        await userServers.set(pubkey, [], 30_000);
-        log(`Failed to find relays`);
-      }
+  // fetch relays if not in cache
+  if (!relays) {
+    log(`Fetching relays`);
+
+    relays = await getUserOutboxes(pubkey);
+    if (relays) {
+      await userRelays.set(pubkey, relays);
+      log(`Found ${relays.length} relays`);
+    } else {
+      relays = [];
+      await userServers.set(pubkey, [], 30_000);
+      log(`Failed to find relays`);
+    }
+  }
+
+  // always check subscription relays
+  relays.push(...SUBSCRIPTION_RELAYS);
+
+  if (relays.length === 0) throw new Error("No nostr relays");
+
+  log(`Searching for ${ctx.path}`);
+  let blobs = await getNsiteBlobs(pubkey, ctx.path, relays);
+
+  if (blobs.length === 0) {
+    // fallback to custom 404 page
+    log(`Looking for custom 404 page`);
+    blobs = await getNsiteBlobs(pubkey, "/404.html", relays);
+  }
+
+  if (blobs.length === 0) {
+    log(`Found 0 events`);
+    ctx.status = 404;
+    ctx.body = "Not Found";
+    return;
+  }
+
+  let servers = await userServers.get<string[] | undefined>(pubkey);
+
+  // fetch blossom servers if not in cache
+  if (!servers) {
+    log(`Fetching blossom servers`);
+    servers = await getUserBlossomServers(pubkey, relays);
+
+    if (servers) {
+      await userServers.set(pubkey, servers);
+      log(`Found ${servers.length} servers`);
+    } else {
+      servers = [];
+      await userServers.set(pubkey, [], 30_000);
+      log(`Failed to find servers`);
+    }
+  }
+
+  // always fetch from additional servers
+  servers.push(...BLOSSOM_SERVERS);
+
+  for (const blob of blobs) {
+    const res = await downloadBlob(blob.sha256, servers);
+    if (!res) continue;
+
+    const type = mime.getType(blob.path);
+    if (type) ctx.set("content-type", type);
+    else if (res.headers["content-type"]) ctx.set("content-type", res.headers["content-type"]);
+
+    // pass headers along
+    if (res.headers["content-length"]) ctx.set("content-length", res.headers["content-length"]);
+
+    // set Onion-Location header
+    if (ONION_HOST) {
+      const url = new URL(ONION_HOST);
+      url.hostname = npubEncode(pubkey) + "." + url.hostname;
+      ctx.set("Onion-Location", url.toString().replace(/\/$/, ""));
     }
 
-    relays.push(...SUBSCRIPTION_RELAYS);
+    // add cache headers
+    ctx.set("ETag", res.headers["etag"] || `"${blob.sha256}"`);
+    ctx.set("Cache-Control", "public, max-age=3600");
+    ctx.set("Last-Modified", res.headers["last-modified"] || new Date(blob.created_at * 1000).toUTCString());
 
-    if (relays.length === 0) throw new Error("No nostr relays");
+    ctx.status = 200;
+    ctx.body = res;
+    return;
+  }
 
-    log(`Searching for ${ctx.path}`);
-    let blobs = await getNsiteBlobs(pubkey, ctx.path, relays);
-
-    if (blobs.length === 0) {
-      // fallback to custom 404 page
-      log(`Looking for custom 404 page`);
-      blobs = await getNsiteBlobs(pubkey, "/404.html", relays);
-    }
-
-    if (blobs.length === 0) {
-      log(`Found 0 events`);
-      ctx.status = 404;
-      ctx.body = "Not Found";
-      return;
-    }
-
-    let servers = await userServers.get<string[] | undefined>(pubkey);
-
-    // fetch blossom servers if not in cache
-    if (!servers) {
-      log(`Fetching blossom servers`);
-      servers = await getUserBlossomServers(pubkey, relays);
-
-      if (servers) {
-        await userServers.set(pubkey, servers);
-        log(`Found ${servers.length} servers`);
-      } else {
-        servers = [];
-        await userServers.set(pubkey, [], 30_000);
-        log(`Failed to find servers`);
-      }
-    }
-
-    // always fetch from additional servers
-    servers.push(...BLOSSOM_SERVERS);
-
-    for (const blob of blobs) {
-      const res = await downloadFile(blob.sha256, servers);
-
-      if (res) {
-        const type = mime.getType(blob.path);
-        if (type) ctx.set("content-type", type);
-        else if (res.headers["content-type"]) ctx.set("content-type", res.headers["content-type"]);
-
-        // pass headers along
-        if (res.headers["content-length"]) ctx.set("content-length", res.headers["content-length"]);
-        if (res.headers["last-modified"]) ctx.set("last-modified", res.headers["last-modified"]);
-
-        // set Onion-Location header
-        if (ONION_HOST) {
-          const url = new URL(ONION_HOST);
-          url.hostname = npubEncode(pubkey) + "." + url.hostname;
-          ctx.set("Onion-Location", url.toString().replace(/\/$/, ""));
-        }
-
-        ctx.status = 200;
-        ctx.body = res;
-        return;
-      }
-    }
-
-    ctx.status = 500;
-    ctx.body = "Failed to find blob";
-  } else await next();
+  ctx.status = 500;
+  ctx.body = "Failed to find blob";
 });
 
 if (ONION_HOST) {
@@ -247,35 +250,13 @@ try {
   app.use(serve(www, serveOptions));
 }
 
+// start the server
 app.listen({ host: NSITE_HOST, port: NSITE_PORT }, () => {
   logger("Started on port", HOST);
 });
 
-// invalidate nginx cache and screenshots on new events
-if (SUBSCRIPTION_RELAYS.length > 0) {
-  logger(`Listening for new nsite events on: ${SUBSCRIPTION_RELAYS.join(", ")}`);
-
-  subscribeForEvents(SUBSCRIPTION_RELAYS, async (event) => {
-    try {
-      const nsite = parseNsiteEvent(event);
-      if (nsite) {
-        const log = logger.extend(nip19.npubEncode(nsite.pubkey));
-        if (NGINX_CACHE_DIR) {
-          log(`Invalidating ${nsite.path}`);
-          await invalidatePubkeyPath(nsite.pubkey, nsite.path);
-        }
-
-        // invalidate screenshot for nsite
-        if (ENABLE_SCREENSHOTS && (nsite.path === "/" || nsite.path === "/index.html")) {
-          const { removeScreenshot } = await import("./screenshots.js");
-          await removeScreenshot(nsite.pubkey);
-        }
-      }
-    } catch (error) {
-      console.log(`Failed to invalidate ${event.id}`);
-    }
-  });
-}
+// watch for invalidations
+watchInvalidation();
 
 process.on("unhandledRejection", (reason, promise) => {
   console.error("Unhandled Rejection at:", promise, "reason:", reason);

@@ -1,6 +1,7 @@
 import { Filter, NostrEvent, SimplePool } from "nostr-tools";
+import { getServersFromServerListEvent, USER_BLOSSOM_SERVER_LIST_KIND } from "blossom-client-sdk";
+
 import { LOOKUP_RELAYS } from "./env.js";
-import { NSITE_KIND } from "./const.js";
 
 const pool = new SimplePool();
 
@@ -11,10 +12,10 @@ export async function getUserOutboxes(pubkey: string) {
   return mailboxes.tags.filter((t) => t[0] === "r" && (t[2] === undefined || t[2] === "write")).map((t) => t[1]);
 }
 
-export function subscribeForEvents(relays: string[], onevent: (event: NostrEvent) => any) {
-  return pool.subscribeMany(relays, [{ kinds: [NSITE_KIND], since: Math.round(Date.now() / 1000) - 60 * 60 }], {
-    onevent,
-  });
+export async function getUserBlossomServers(pubkey: string, relays: string[]) {
+  const blossomServersEvent = await pool.get(relays, { kinds: [USER_BLOSSOM_SERVER_LIST_KIND], authors: [pubkey] });
+
+  return blossomServersEvent ? getServersFromServerListEvent(blossomServersEvent).map((u) => u.toString()) : undefined;
 }
 
 export function requestEvents(relays: string[], filter: Filter) {

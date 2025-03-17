@@ -1,4 +1,4 @@
-import { extname, isAbsolute, join } from "path";
+import { extname, join } from "path";
 import { NSITE_KIND } from "./const.js";
 import { requestEvents } from "./nostr.js";
 
@@ -11,7 +11,7 @@ export function getSearchPaths(path: string) {
   return paths.filter((p) => !!p);
 }
 
-export function parseNsiteEvent(event: { pubkey: string; tags: string[][] }) {
+export function parseNsiteEvent(event: { pubkey: string; tags: string[][]; created_at: number }) {
   const path = event.tags.find((t) => t[0] === "d" && t[1])?.[1];
   const sha256 = event.tags.find((t) => t[0] === "x" && t[1])?.[1];
 
@@ -20,6 +20,7 @@ export function parseNsiteEvent(event: { pubkey: string; tags: string[][] }) {
       pubkey: event.pubkey,
       path: join("/", path),
       sha256,
+      created_at: event.created_at,
     };
 }
 

@@ -1,21 +1,13 @@
 import { IncomingMessage } from "node:http";
-import { getServersFromServerListEvent, USER_BLOSSOM_SERVER_LIST_KIND } from "blossom-client-sdk";
 
 import { BLOSSOM_SERVERS, MAX_FILE_SIZE } from "./env.js";
 import { makeRequestWithAbort } from "./helpers/http.js";
-import pool from "./nostr.js";
-
-export async function getUserBlossomServers(pubkey: string, relays: string[]) {
-  const blossomServersEvent = await pool.get(relays, { kinds: [USER_BLOSSOM_SERVER_LIST_KIND], authors: [pubkey] });
-
-  return blossomServersEvent ? getServersFromServerListEvent(blossomServersEvent).map((u) => u.toString()) : undefined;
-}
 
 /**
  * Downloads a file from multiple servers
  * @todo download the file to /tmp and verify it
  */
-export function downloadFile(sha256: string, servers = BLOSSOM_SERVERS): Promise<IncomingMessage> {
+export function downloadBlob(sha256: string, servers = BLOSSOM_SERVERS): Promise<IncomingMessage> {
   return new Promise((resolve, reject) => {
     const controllers = new Map<string, AbortController>();
 
