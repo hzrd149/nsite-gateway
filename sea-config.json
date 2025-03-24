@@ -1,0 +1,5 @@
+{
+  "main": "build/bundle.mjs",
+  "output": "build/nsite-gateway.blob",
+  "assets": []
+}
