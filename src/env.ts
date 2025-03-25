@@ -18,6 +18,7 @@ const MAX_FILE_SIZE = process.env.MAX_FILE_SIZE ? xbytes.parseSize(process.env.M
 
 const NGINX_CACHE_DIR = process.env.NGINX_CACHE_DIR;
 const CACHE_PATH = process.env.CACHE_PATH;
+const CACHE_TIME = process.env.CACHE_TIME ? parseInt(process.env.CACHE_TIME) : 60 * 60;
 
 const PAC_PROXY = process.env.PAC_PROXY;
 const TOR_PROXY = process.env.TOR_PROXY;
@@ -50,4 +51,5 @@ export {
   ENABLE_SCREENSHOTS,
   SCREENSHOTS_DIR,
   ONION_HOST,
+  CACHE_TIME,
 };

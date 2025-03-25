@@ -1,10 +1,5 @@
 import Keyv from "keyv";
-import pfs from "fs/promises";
-import { CACHE_PATH } from "./env.js";
-
-try {
-  await pfs.mkdir("data");
-} catch (error) {}
+import { CACHE_PATH, CACHE_TIME } from "./env.js";
 
 async function createStore() {
   if (!CACHE_PATH || CACHE_PATH === "in-memory") return undefined;
@@ -26,26 +21,30 @@ store?.on("error", (err) => {
 
 const opts = store ? { store } : {};
 
-/** domain -> pubkey */
-export const userDomains = new Keyv({
+/** A cache that maps a domain to a pubkey ( domain -> pubkey ) */
+export const userDomains = new Keyv<string | undefined>({
   ...opts,
   namespace: "domains",
-  // cache domains for an hour
-  ttl: 60 * 60 * 1000,
+  ttl: CACHE_TIME * 1000,
 });
 
-/** pubkey -> blossom servers */
-export const userServers = new Keyv({
+/** A cache that maps a pubkey to a set of blossom servers ( pubkey -> servers ) */
+export const userServers = new Keyv<string[] | undefined>({
   ...opts,
   namespace: "servers",
-  // cache servers for an hour
-  ttl: 60 * 60 * 1000,
+  ttl: CACHE_TIME * 1000,
 });
 
-/** pubkey -> relays */
-export const userRelays = new Keyv({
+/** A cache that maps a pubkey to a set of relays ( pubkey -> relays ) */
+export const userRelays = new Keyv<string[] | undefined>({
   ...opts,
   namespace: "relays",
-  // cache relays for an hour
-  ttl: 60 * 60 * 1000,
+  ttl: CACHE_TIME * 1000,
+});
+
+/** A cache that maps a pubkey + path to blossom servers that had the blob ( pubkey/path -> servers ) */
+export const pathServers = new Keyv<string[] | undefined>({
+  ...opts,
+  namespace: "paths",
+  ttl: CACHE_TIME * 1000,
 });
