@@ -1,5 +1,22 @@
 # nsite-gateway
 
+## 1.0.0
+
+### Major Changes
+
+- ef5262f: Remove screenshots feature
+- ef5262f: Remove nginx cache invalidations
+
+### Minor Changes
+
+- b37664b: Cleanup DNS pubkey resolution
+- 9a04f63: Add support for resolving NIP-05 names on set domains
+- b2b8e01: Make blossom requests in parallel
+
+### Patch Changes
+
+- ef5262f: Fix race condition when streaming blob
+
 ## 0.7.0
 
 ### Minor Changes
