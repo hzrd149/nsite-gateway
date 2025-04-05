@@ -1,12 +1,8 @@
-# syntax=docker/dockerfile:1
 FROM node:22-alpine AS base
 
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
 RUN corepack enable
-
-RUN apk update && apk add --no-cache nginx supervisor
-COPY supervisord.conf /etc/supervisord.conf
 
 WORKDIR /app
 COPY package.json .
@@ -27,25 +23,13 @@ FROM base AS main
 RUN addgroup -S nsite && adduser -S nsite -G nsite
 RUN chown -R nsite:nsite /app
 
-# Setup nginx
-COPY nginx/nginx.conf /etc/nginx/nginx.conf
-COPY nginx/http.conf /etc/nginx/conf.d/default.conf
-
 # setup nsite
 COPY --from=prod-deps /app/node_modules /app/node_modules
 COPY --from=build ./app/build ./build
 
 COPY ./public ./public
 
-VOLUME [ "/var/cache/nginx" ]
-
 EXPOSE 80 3000
 ENV NSITE_PORT="3000"
-ENV NGINX_CACHE_DIR="/var/cache/nginx"
-ENV ENABLE_SCREENSHOTS="false"
 
-COPY docker-entrypoint.sh /
-RUN chmod +x /docker-entrypoint.sh
-ENTRYPOINT ["/docker-entrypoint.sh"]
-
-CMD ["/usr/bin/supervisord", "-c", "/etc/supervisord.conf"]
+CMD ["node", "."]

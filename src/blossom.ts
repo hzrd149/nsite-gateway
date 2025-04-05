@@ -1,53 +1,67 @@
 import { IncomingMessage } from "node:http";
 
-import { BLOSSOM_SERVERS, MAX_FILE_SIZE } from "./env.js";
+import { MAX_FILE_SIZE } from "./env.js";
 import { makeRequestWithAbort } from "./helpers/http.js";
+import { blobURLs } from "./cache.js";
+import logger from "./logger.js";
 
-/**
- * Downloads a file from multiple servers
- * @todo download the file to /tmp and verify it
- */
-export function downloadBlob(sha256: string, servers = BLOSSOM_SERVERS): Promise<IncomingMessage> {
-  return new Promise((resolve, reject) => {
-    const controllers = new Map<string, AbortController>();
+const log = logger.extend("blossom");
 
-    // make all requests in parallel
-    servers.forEach(async (server) => {
+/** Checks all servers for a blob and returns the URLs */
+export async function findBlobURLs(sha256: string, servers: string[]): Promise<string[]> {
+  const cache = await blobURLs.get(sha256);
+  if (cache) return cache;
+
+  const urls = await Promise.all(
+    servers.map(async (server) => {
       const url = new URL(sha256, server);
-      const controller = new AbortController();
-      let res: IncomingMessage | undefined = undefined;
-      controllers.set(server, controller);
 
-      try {
-        const response = await makeRequestWithAbort(url, controller);
-        res = response;
+      const check = await fetch(url, { method: "HEAD" }).catch(() => null);
+      if (check?.status === 200) return url.toString();
+      else return null;
+    }),
+  );
 
-        if (!response.statusCode) throw new Error("Missing headers or status code");
+  const filtered = urls.filter((url) => url !== null);
 
-        const size = response.headers["content-length"];
-        if (size && parseInt(size) > MAX_FILE_SIZE) throw new Error("File too large");
+  log(`Found ${filtered.length}/${servers.length} URLs for ${sha256}`);
+  await blobURLs.set(sha256, filtered);
+  return filtered;
+}
 
-        if (response.statusCode >= 200 && response.statusCode < 300) {
-          // cancel the other requests
-          for (const [other, abort] of controllers) {
-            if (other !== server) abort.abort();
-          }
+/** Downloads a file from multiple servers */
+export async function streamBlob(sha256: string, servers: string[]): Promise<IncomingMessage | undefined> {
+  if (servers.length === 0) return undefined;
 
-          controllers.delete(server);
-          return resolve(response);
-        }
-      } catch (error) {
-        controllers.delete(server);
-        if (res) res.resume();
-      }
+  // First find all available URLs
+  const urls = await findBlobURLs(sha256, servers);
+  if (urls.length === 0) return undefined;
 
-      // reject if last
-      if (controllers.size === 0) reject(new Error("Failed to find blob on servers"));
-    });
+  // Try each URL sequentially with timeout
+  for (const urlString of urls) {
+    const controller = new AbortController();
+    let res: IncomingMessage | undefined = undefined;
 
-    // reject if all servers don't respond in 30s
-    setTimeout(() => {
-      reject(new Error("Timeout"));
-    }, 30_000);
-  });
+    try {
+      // Set up timeout to abort after 10s
+      const timeout = setTimeout(() => {
+        controller.abort();
+      }, 10_000);
+
+      const url = new URL(urlString);
+      const response = await makeRequestWithAbort(url, controller);
+      res = response;
+      clearTimeout(timeout);
+
+      if (!response.statusCode) throw new Error("Missing headers or status code");
+
+      const size = response.headers["content-length"];
+      if (size && parseInt(size) > MAX_FILE_SIZE) throw new Error("File too large");
+
+      if (response.statusCode >= 200 && response.statusCode < 300) return response;
+    } catch (error) {
+      if (res) res.resume();
+      continue; // Try next URL if this one fails
+    }
+  }
 }

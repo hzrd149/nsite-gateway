@@ -16,7 +16,6 @@ const BLOSSOM_SERVERS = process.env.BLOSSOM_SERVERS?.split(",").map((u) => u.tri
 
 const MAX_FILE_SIZE = process.env.MAX_FILE_SIZE ? xbytes.parseSize(process.env.MAX_FILE_SIZE) : Infinity;
 
-const NGINX_CACHE_DIR = process.env.NGINX_CACHE_DIR;
 const CACHE_PATH = process.env.CACHE_PATH;
 const CACHE_TIME = process.env.CACHE_TIME ? parseInt(process.env.CACHE_TIME) : 60 * 60;
 
@@ -28,9 +27,6 @@ const NSITE_HOST = process.env.NSITE_HOST || "0.0.0.0";
 const NSITE_PORT = process.env.NSITE_PORT ? parseInt(process.env.NSITE_PORT) : 3000;
 const HOST = `${NSITE_HOST}:${NSITE_PORT}`;
 
-const ENABLE_SCREENSHOTS = process.env.ENABLE_SCREENSHOTS === "true";
-const SCREENSHOTS_DIR = process.env.SCREENSHOTS_DIR || "./screenshots";
-
 const ONION_HOST = process.env.ONION_HOST;
 
 export {
@@ -40,7 +36,6 @@ export {
   LOOKUP_RELAYS,
   BLOSSOM_SERVERS,
   MAX_FILE_SIZE,
-  NGINX_CACHE_DIR,
   CACHE_PATH,
   PAC_PROXY,
   TOR_PROXY,
@@ -48,8 +43,6 @@ export {
   NSITE_HOST,
   NSITE_PORT,
   HOST,
-  ENABLE_SCREENSHOTS,
-  SCREENSHOTS_DIR,
   ONION_HOST,
   CACHE_TIME,
 };

@@ -26,8 +26,7 @@
       "internalConsoleOptions": "openOnSessionStart",
       "outputCapture": "std",
       "env": {
-        "DEBUG": "nsite,nsite:*",
-        "ENABLE_SCREENSHOTS": "true"
+        "DEBUG": "nsite,nsite:*"
       }
     }
   ]
