@@ -60,18 +60,24 @@ app.use(async (ctx, next) => {
 });
 
 // handle nsite requests
-app.use(async (ctx) => {
+app.use(async (ctx, next) => {
   let pubkey = await resolvePubkeyFromHostname(ctx.hostname);
 
+  let fallthrough = true;
   if (!pubkey && NSITE_HOMEPAGE && (!PUBLIC_DOMAIN || ctx.hostname === PUBLIC_DOMAIN)) {
     const parsed = nip19.decode(NSITE_HOMEPAGE);
     // TODO: use the relays in the nprofile
 
     if (parsed.type === "nprofile") pubkey = parsed.data.pubkey;
     else if (parsed.type === "npub") pubkey = parsed.data;
+
+    // Fallback to public dir if path cannot be found on the nsite homepage
+    if (pubkey) fallthrough = true;
   }
 
   if (!pubkey) {
+    if (fallthrough) return next();
+
     ctx.status = 404;
     ctx.body = fs.readFileSync(path.resolve(__dirname, "../public/404.html"), "utf-8");
     return;
@@ -95,6 +101,8 @@ app.use(async (ctx) => {
   ]);
 
   if (!event) {
+    if (fallthrough) return next();
+
     ctx.status = 404;
     ctx.body = `Not Found: no events found\npath: ${ctx.path}\nkind: ${NSITE_KIND}\npubkey: ${pubkey}\nrelays: ${relays.join(", ")}`;
     return;
