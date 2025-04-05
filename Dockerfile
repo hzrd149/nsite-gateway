@@ -29,7 +29,7 @@ COPY --from=build ./app/build ./build
 
 COPY ./public ./public
 
-EXPOSE 80 3000
+EXPOSE 3000
 ENV NSITE_PORT="3000"
 
 CMD ["node", "."]

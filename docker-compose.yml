@@ -1,6 +1,7 @@
 services:
   redis:
     image: redis:alpine
+    restart: unless-stopped
     command: redis-server --save 60 1 --loglevel warning
     volumes:
       - redis-data:/data
@@ -8,14 +9,28 @@ services:
   nsite:
     build: .
     image: ghcr.io/hzrd149/nsite-gateway:master
+    restart: unless-stopped
     environment:
       LOOKUP_RELAYS: wss://user.kindpag.es,wss://purplepag.es
       SUBSCRIPTION_RELAYS: wss://nostrue.com/,wss://nos.lol/,wss://relay.damus.io/,wss://purplerelay.com/
       CACHE_PATH: redis://redis:6379
     depends_on:
       - redis
+
+  caddy:
+    image: caddy:alpine
+    restart: unless-stopped
     ports:
-      - 3000:3000
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - nsite
 
 volumes:
   redis-data:
+  caddy_data:
+  caddy_config:
