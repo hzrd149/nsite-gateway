@@ -9,10 +9,9 @@ import { fileURLToPath } from "node:url";
 import mime from "mime";
 import morgan from "koa-morgan";
 import { npubEncode } from "nostr-tools/nip19";
-import { spawn } from "node:child_process";
 import { nip19 } from "nostr-tools";
 
-import { resolveNpubFromHostname } from "./helpers/dns.js";
+import { resolvePubkeyFromHostname } from "./dns.js";
 import { getNsiteBlob } from "./events.js";
 import { streamBlob } from "./blossom.js";
 import {
@@ -25,7 +24,6 @@ import {
   ONION_HOST,
   SUBSCRIPTION_RELAYS,
 } from "./env.js";
-import { userDomains, userRelays, userServers } from "./cache.js";
 import pool, { getUserBlossomServers, getUserOutboxes } from "./nostr.js";
 import logger from "./logger.js";
 import { watchInvalidation } from "./invalidation.js";
@@ -62,28 +60,20 @@ app.use(async (ctx, next) => {
 
 // handle nsite requests
 app.use(async (ctx, next) => {
-  let pubkey = await userDomains.get<string | undefined>(ctx.hostname);
+  let pubkey = await resolvePubkeyFromHostname(ctx.hostname);
 
-  // resolve pubkey if not in cache
-  if (pubkey === undefined) {
-    logger(`${ctx.hostname}: Resolving`);
-    pubkey = await resolveNpubFromHostname(ctx.hostname);
+  if (!pubkey) {
+    if (NSITE_HOMEPAGE) {
+      const parsed = nip19.decode(NSITE_HOMEPAGE);
+      // TODO: use the relays in the nprofile
 
-    if (pubkey) {
-      await userDomains.set(ctx.hostname, pubkey);
-      logger(`${ctx.hostname}: Found ${pubkey}`);
-    } else {
-      await userDomains.set(ctx.hostname, "");
-    }
+      if (parsed.type === "nprofile") pubkey = parsed.data.pubkey;
+      else if (parsed.type === "npub") pubkey = parsed.data;
+      else return await next();
+    } else return await next();
   }
 
-  if (!pubkey) return await next();
-
-  const npub = npubEncode(pubkey);
-  const log = logger.extend(npub);
-  ctx.state.pubkey = pubkey;
-
-  // fetch relays if not in cache
+  // fetch relays
   const relays = (await getUserOutboxes(pubkey)) || [];
 
   // always check subscription relays
@@ -94,21 +84,13 @@ app.use(async (ctx, next) => {
   // fetch servers and events in parallel
   let [servers, event] = await Promise.all([
     getUserBlossomServers(pubkey, relays).then((s) => s || []),
-    (async () => {
-      let e = await getNsiteBlob(pubkey, ctx.path, relays);
-
-      // fallback to custom 404 page
-      if (!e) {
-        log(`Looking for custom 404 page`);
-        e = await getNsiteBlob(pubkey, "/404.html", relays);
-      }
-
-      return e;
-    })(),
+    getNsiteBlob(pubkey, ctx.path, relays).then((e) => {
+      if (!e) return getNsiteBlob(pubkey, "/404.html", relays);
+      else return e;
+    }),
   ]);
 
   if (!event) {
-    log(`Found 0 events for ${ctx.path}`);
     ctx.status = 404;
     ctx.body = `Not Found: no events found\npath: ${ctx.path}\nkind: ${NSITE_KIND}\npubkey: ${pubkey}\nrelays: ${relays.join(", ")}`;
     return;
@@ -150,11 +132,10 @@ app.use(async (ctx, next) => {
     ctx.body = res;
     return;
   } catch (error) {
-    log(`Failed to stream ${event.sha256}\n${error}`);
+    ctx.status = 500;
+    ctx.body = `Failed to stream blob ${event.path}\n${error}`;
+    return;
   }
-
-  ctx.status = 500;
-  ctx.body = "Failed to find blob";
 });
 
 if (ONION_HOST) {
@@ -166,39 +147,6 @@ if (ONION_HOST) {
 
     return next();
   });
-}
-
-// download homepage
-if (NSITE_HOMEPAGE) {
-  try {
-    const log = logger.extend("homepage");
-    // create the public dir
-    try {
-      fs.mkdirSync(NSITE_HOMEPAGE_DIR);
-    } catch (error) {}
-
-    const bin = (await import.meta.resolve("nsite-cli")).replace("file://", "");
-
-    const decode = nip19.decode(NSITE_HOMEPAGE);
-    if (decode.type !== "nprofile") throw new Error("NSITE_HOMEPAGE must be a valid nprofile");
-
-    // use nsite-cli to download the homepage
-    const args = [bin, "download", NSITE_HOMEPAGE_DIR, nip19.npubEncode(decode.data.pubkey)];
-    if (decode.data.relays) args.push("--relays", decode.data.relays?.join(","));
-
-    const child = spawn("node", args, { stdio: "pipe" });
-
-    child.on("spawn", () => log("Downloading..."));
-    child.stdout.on("data", (line) => log(line.toString("utf-8")));
-    child.on("error", (e) => log("Failed", e));
-    child.on("close", (code) => {
-      if (code === 0) log("Finished");
-      else log("Failed");
-    });
-  } catch (error) {
-    console.log(`Failed to download homepage`);
-    console.log(error);
-  }
 }
 
 // serve static files from public

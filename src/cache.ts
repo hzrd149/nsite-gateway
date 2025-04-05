@@ -27,21 +27,21 @@ store?.on("error", (err) => {
 const opts = store ? { store } : {};
 
 /** A cache that maps a domain to a pubkey ( domain -> pubkey ) */
-export const userDomains = new Keyv<string | undefined>({
+export const pubkeyDomains = new Keyv<string | undefined>({
   ...opts,
   namespace: "domains",
   ttl: CACHE_TIME * 1000,
 });
 
 /** A cache that maps a pubkey to a set of blossom servers ( pubkey -> servers ) */
-export const userServers = new Keyv<string[] | undefined>({
+export const pubkeyServers = new Keyv<string[] | undefined>({
   ...opts,
   namespace: "servers",
   ttl: CACHE_TIME * 1000,
 });
 
 /** A cache that maps a pubkey to a set of relays ( pubkey -> relays ) */
-export const userRelays = new Keyv<string[] | undefined>({
+export const pubkeyRelays = new Keyv<string[] | undefined>({
   ...opts,
   namespace: "relays",
   ttl: CACHE_TIME * 1000,

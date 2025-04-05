@@ -2,7 +2,7 @@ import { Filter, NostrEvent, SimplePool } from "nostr-tools";
 import { getServersFromServerListEvent, USER_BLOSSOM_SERVER_LIST_KIND } from "blossom-client-sdk";
 
 import { LOOKUP_RELAYS } from "./env.js";
-import { userRelays, userServers } from "./cache.js";
+import { pubkeyRelays, pubkeyServers } from "./cache.js";
 import logger from "./logger.js";
 import { npubEncode } from "nostr-tools/nip19";
 
@@ -12,7 +12,7 @@ const log = logger.extend("nostr");
 
 /** Fetches a pubkeys mailboxes from the cache or relays */
 export async function getUserOutboxes(pubkey: string) {
-  const cached = await userRelays.get(pubkey);
+  const cached = await pubkeyRelays.get(pubkey);
   if (cached) return cached;
   const mailboxes = await pool.get(LOOKUP_RELAYS, { kinds: [10002], authors: [pubkey] });
 
@@ -23,15 +23,15 @@ export async function getUserOutboxes(pubkey: string) {
     .map((t) => t[1]);
 
   log(`Found ${relays.length} relays for ${npubEncode(pubkey)}`);
-  await userRelays.set(pubkey, relays);
+  await pubkeyRelays.set(pubkey, relays);
 
-  await userRelays.set(pubkey, relays);
+  await pubkeyRelays.set(pubkey, relays);
   return relays;
 }
 
 /** Fetches a pubkeys blossom servers from the cache or relays */
 export async function getUserBlossomServers(pubkey: string, relays: string[]) {
-  const cached = await userServers.get(pubkey);
+  const cached = await pubkeyServers.get(pubkey);
   if (cached) return cached;
 
   const blossomServersEvent = await pool.get(relays, { kinds: [USER_BLOSSOM_SERVER_LIST_KIND], authors: [pubkey] });
@@ -42,7 +42,7 @@ export async function getUserBlossomServers(pubkey: string, relays: string[]) {
   // Save servers if found
   if (servers) {
     log(`Found ${servers.length} blossom servers for ${npubEncode(pubkey)}`);
-    await userServers.set(pubkey, servers);
+    await pubkeyServers.set(pubkey, servers);
   }
 
   return servers;
