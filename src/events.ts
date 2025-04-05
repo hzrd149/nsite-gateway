@@ -1,6 +1,14 @@
 import { extname, join } from "path";
 import { NSITE_KIND } from "./const.js";
 import { requestEvents } from "./nostr.js";
+import { pathBlobs } from "./cache.js";
+
+export type ParsedEvent = {
+  pubkey: string;
+  path: string;
+  sha256: string;
+  created_at: number;
+};
 
 /** Returns all the `d` tags that should be searched for a given path */
 export function getSearchPaths(path: string) {
@@ -26,20 +34,24 @@ export function parseNsiteEvent(event: { pubkey: string; tags: string[][]; creat
 }
 
 /** Returns the first blob found for a given path */
-export async function getNsiteBlob(
-  pubkey: string,
-  path: string,
-  relays: string[],
-): Promise<{ sha256: string; path: string; created_at: number } | undefined> {
+export async function getNsiteBlob(pubkey: string, path: string, relays: string[]): Promise<ParsedEvent | undefined> {
+  const key = pubkey + path;
+
+  const cached = await pathBlobs.get(key);
+  if (cached) return cached;
+
   // NOTE: hack, remove "/" paths since it breaks some relays
   const paths = getSearchPaths(path).filter((p) => p !== "/");
   const events = await requestEvents(relays, { kinds: [NSITE_KIND], "#d": paths, authors: [pubkey] });
 
   // Sort the found blobs by the order of the paths array
-  const blobs = Array.from(events)
+  const options = Array.from(events)
     .map(parseNsiteEvent)
     .filter((e) => !!e)
     .sort((a, b) => paths.indexOf(a.path) - paths.indexOf(b.path));
 
-  return blobs[0];
+  // Remember the blob for this path
+  if (options.length > 0) await pathBlobs.set(key, options[0]);
+
+  return options[0];
 }

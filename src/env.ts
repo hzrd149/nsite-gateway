@@ -19,6 +19,9 @@ const MAX_FILE_SIZE = process.env.MAX_FILE_SIZE ? xbytes.parseSize(process.env.M
 const CACHE_PATH = process.env.CACHE_PATH;
 const CACHE_TIME = process.env.CACHE_TIME ? parseInt(process.env.CACHE_TIME) : 60 * 60;
 
+const NIP05_NAME_DOMAINS = process.env.NIP05_NAME_DOMAINS?.split(",").map((d) => d.trim());
+const PUBLIC_DOMAIN = process.env.PUBLIC_DOMAIN;
+
 const PAC_PROXY = process.env.PAC_PROXY;
 const TOR_PROXY = process.env.TOR_PROXY;
 const I2P_PROXY = process.env.I2P_PROXY;
@@ -45,4 +48,6 @@ export {
   HOST,
   ONION_HOST,
   CACHE_TIME,
+  NIP05_NAME_DOMAINS,
+  PUBLIC_DOMAIN,
 };

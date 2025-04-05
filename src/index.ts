@@ -22,6 +22,7 @@ import {
   NSITE_HOST,
   NSITE_PORT,
   ONION_HOST,
+  PUBLIC_DOMAIN,
   SUBSCRIPTION_RELAYS,
 } from "./env.js";
 import pool, { getUserBlossomServers, getUserOutboxes } from "./nostr.js";
@@ -59,18 +60,21 @@ app.use(async (ctx, next) => {
 });
 
 // handle nsite requests
-app.use(async (ctx, next) => {
+app.use(async (ctx) => {
   let pubkey = await resolvePubkeyFromHostname(ctx.hostname);
 
-  if (!pubkey) {
-    if (NSITE_HOMEPAGE) {
-      const parsed = nip19.decode(NSITE_HOMEPAGE);
-      // TODO: use the relays in the nprofile
+  if (!pubkey && NSITE_HOMEPAGE && (!PUBLIC_DOMAIN || ctx.hostname === PUBLIC_DOMAIN)) {
+    const parsed = nip19.decode(NSITE_HOMEPAGE);
+    // TODO: use the relays in the nprofile
 
-      if (parsed.type === "nprofile") pubkey = parsed.data.pubkey;
-      else if (parsed.type === "npub") pubkey = parsed.data;
-      else return await next();
-    } else return await next();
+    if (parsed.type === "nprofile") pubkey = parsed.data.pubkey;
+    else if (parsed.type === "npub") pubkey = parsed.data;
+  }
+
+  if (!pubkey) {
+    ctx.status = 404;
+    ctx.body = fs.readFileSync(path.resolve(__dirname, "../public/404.html"), "utf-8");
+    return;
   }
 
   // fetch relays
