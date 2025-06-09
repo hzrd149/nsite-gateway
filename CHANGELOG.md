@@ -1,5 +1,11 @@
 # nsite-gateway
 
+## 1.0.1
+
+### Patch Changes
+
+- 1473eee: Fix returning setup page when event can't be found for pubkey
+
 ## 1.0.0
 
 ### Major Changes
