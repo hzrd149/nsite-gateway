@@ -63,7 +63,7 @@ app.use(async (ctx, next) => {
 app.use(async (ctx, next) => {
   let pubkey = await resolvePubkeyFromHostname(ctx.hostname);
 
-  let fallthrough = true;
+  let fallthrough = false;
   if (!pubkey && NSITE_HOMEPAGE && (!PUBLIC_DOMAIN || ctx.hostname === PUBLIC_DOMAIN)) {
     const parsed = nip19.decode(NSITE_HOMEPAGE);
     // TODO: use the relays in the nprofile
