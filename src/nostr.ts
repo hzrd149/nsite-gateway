@@ -1,10 +1,10 @@
 import { Filter, NostrEvent, SimplePool } from "nostr-tools";
-import { getServersFromServerListEvent, USER_BLOSSOM_SERVER_LIST_KIND } from "blossom-client-sdk";
 
 import { LOOKUP_RELAYS } from "./env.js";
 import { pubkeyRelays, pubkeyServers } from "./cache.js";
 import logger from "./logger.js";
 import { npubEncode } from "nostr-tools/nip19";
+import { USER_BLOSSOM_SERVER_LIST_KIND } from "./const.js";
 
 const pool = new SimplePool();
 
@@ -35,9 +35,9 @@ export async function getUserBlossomServers(pubkey: string, relays: string[]) {
   if (cached) return cached;
 
   const blossomServersEvent = await pool.get(relays, { kinds: [USER_BLOSSOM_SERVER_LIST_KIND], authors: [pubkey] });
-  const servers = blossomServersEvent
-    ? getServersFromServerListEvent(blossomServersEvent).map((u) => u.toString())
-    : undefined;
+  const servers = blossomServersEvent?.tags
+    .filter((t) => t[0] === "server" && t[1] && URL.canParse(t[1]))
+    .map((t) => new URL(t[1]).toString());
 
   // Save servers if found
   if (servers) {
