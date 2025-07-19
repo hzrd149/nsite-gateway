@@ -1,6 +1,6 @@
 {
   "name": "nsite-gateway",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "A blossom server implementation written in Typescript",
   "main": "build/index.js",
   "type": "module",
