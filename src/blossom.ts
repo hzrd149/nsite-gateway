@@ -29,8 +29,12 @@ export async function findBlobURLs(sha256: string, servers: string[]): Promise<s
   return filtered;
 }
 
-/** Downloads a file from multiple servers */
-export async function streamBlob(sha256: string, servers: string[]): Promise<IncomingMessage | undefined> {
+/** Downloads a file from multiple servers with optional range support */
+export async function streamBlob(
+  sha256: string,
+  servers: string[],
+  headers?: Record<string, string>,
+): Promise<IncomingMessage | undefined> {
   if (servers.length === 0) return undefined;
 
   // First find all available URLs
@@ -49,7 +53,7 @@ export async function streamBlob(sha256: string, servers: string[]): Promise<Inc
       }, 10_000);
 
       const url = new URL(urlString);
-      const response = await makeRequestWithAbort(url, controller);
+      const response = await makeRequestWithAbort(url, controller, headers);
       res = response;
       clearTimeout(timeout);
 
@@ -58,6 +62,7 @@ export async function streamBlob(sha256: string, servers: string[]): Promise<Inc
       const size = response.headers["content-length"];
       if (size && parseInt(size) > MAX_FILE_SIZE) throw new Error("File too large");
 
+      // Accept both 200 (full content) and 206 (partial content) status codes
       if (response.statusCode >= 200 && response.statusCode < 300) return response;
     } catch (error) {
       if (res) res.resume();

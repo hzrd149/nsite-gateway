@@ -8,6 +8,7 @@ import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import mime from "mime";
 import morgan from "koa-morgan";
+import range from "koa-range";
 import { npubEncode } from "nostr-tools/nip19";
 import { nip19 } from "nostr-tools";
 
@@ -37,6 +38,9 @@ const app = new Koa();
 morgan.token("host", (req) => req.headers.host ?? "");
 
 app.use(morgan(":method :host:url :status :response-time ms - :res[content-length]"));
+
+// add range request support
+app.use(range);
 
 // set CORS headers
 app.use(
@@ -114,7 +118,13 @@ app.use(async (ctx, next) => {
   if (servers.length === 0) throw new Error("Failed to find blossom servers");
 
   try {
-    const res = await streamBlob(event.sha256, servers);
+    // Prepare headers for range requests
+    const requestHeaders: Record<string, string> = {};
+    if (ctx.headers.range) {
+      requestHeaders.range = ctx.headers.range;
+    }
+
+    const res = await streamBlob(event.sha256, servers, requestHeaders);
     if (!res) {
       ctx.status = 502;
       ctx.body = `Failed to find blob\npath: ${event.path}\nsha256: ${event.sha256}\nservers: ${servers.join(", ")}`;
@@ -128,6 +138,10 @@ app.use(async (ctx, next) => {
     // pass headers along
     if (res.headers["content-length"]) ctx.set("content-length", res.headers["content-length"]);
 
+    // handle range response headers
+    if (res.headers["accept-ranges"]) ctx.set("accept-ranges", res.headers["accept-ranges"]);
+    if (res.headers["content-range"]) ctx.set("content-range", res.headers["content-range"]);
+
     // set Onion-Location header
     if (ONION_HOST) {
       const url = new URL(ONION_HOST);
@@ -140,7 +154,8 @@ app.use(async (ctx, next) => {
     ctx.set("Cache-Control", "public, max-age=3600");
     ctx.set("Last-Modified", res.headers["last-modified"] || new Date(event.created_at * 1000).toUTCString());
 
-    ctx.status = 200;
+    // set appropriate status code (206 for partial content, 200 for full content)
+    ctx.status = res.statusCode === 206 ? 206 : 200;
     ctx.body = res;
     return;
   } catch (error) {
