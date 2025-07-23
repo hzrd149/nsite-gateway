@@ -1,5 +1,15 @@
 # nsite-gateway
 
+## 1.1.0
+
+### Minor Changes
+
+- d45cf57: Support range requests
+
+### Patch Changes
+
+- 6f8b003: Remove unused dependencies
+
 ## 1.0.1
 
 ### Patch Changes
