@@ -194,7 +194,7 @@ try {
 
 // start the server
 app.listen({ host: NSITE_HOST, port: NSITE_PORT }, () => {
-  logger("Started on port", HOST);
+  console.log("Started on port", HOST);
 });
 
 // watch for invalidations
@@ -205,7 +205,7 @@ process.on("unhandledRejection", (reason, promise) => {
 });
 
 async function shutdown() {
-  logger("Shutting down...");
+  console.log("Shutting down...");
   pool.destroy();
   process.exit(0);
 }
