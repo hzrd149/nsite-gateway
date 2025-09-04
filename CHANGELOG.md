@@ -1,5 +1,11 @@
 # nsite-gateway
 
+## 1.1.1
+
+### Patch Changes
+
+- 100ff4c: Add more debug logging to blob streaming
+
 ## 1.1.0
 
 ### Minor Changes
