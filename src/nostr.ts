@@ -11,7 +11,7 @@ import { Filter, NostrEvent } from "nostr-tools";
 import { npubEncode } from "nostr-tools/nip19";
 import { debounceTime, defaultIfEmpty, take, takeUntil, takeWhile, tap, timeout, timer, toArray } from "rxjs";
 
-import { pubkeyEvents, pubkeyRelays, pubkeyServers } from "./cache.js";
+import { pubkeyEvents, pubkeyLastSync, pubkeyRelays, pubkeyServers } from "./cache.js";
 import { NSITE_KIND } from "./const.js";
 import { CACHE_RELAYS, LOOKUP_RELAYS } from "./env.js";
 import { ParsedEvent, parseNsiteEvent } from "./events.js";
@@ -107,13 +107,38 @@ export const getUserBlossomServers = createPromiseLock(
   (pubkey: string) => pubkey, // Lock by pubkey only
 );
 
+const ONE_DAY = 86400 * 1000;
+
 /** Internal function that does the actual event loading */
 async function loadEventsInternal(pubkey: string, relays: string[]): Promise<ParsedEvent[]> {
-  // Check cache first
-  const cached = await pubkeyEvents.get(pubkey);
-  if (cached) return cached;
-
   const loadLog = log.extend(npubEncode(pubkey));
+
+  // Get the last sync timestamp and cached events
+  const lastSyncTime = await pubkeyLastSync.get(pubkey);
+  const cachedEvents = await pubkeyEvents.get(pubkey);
+
+  // Return cache if it's less than 1 day since sync
+  if (cachedEvents && (!lastSyncTime || lastSyncTime < Date.now() - ONE_DAY)) {
+    return cachedEvents?.map(parseNsiteEvent).filter((e): e is ParsedEvent => !!e);
+  }
+
+  // Add cached events to event store before syncing
+  if (cachedEvents) {
+    for (const event of cachedEvents) {
+      eventStore.add(event);
+    }
+    loadLog(`Added ${cachedEvents.length} cached events to event store`);
+  }
+
+  // If we have a last sync time, we'll do an incremental sync
+  const isIncrementalSync = lastSyncTime !== undefined;
+
+  if (isIncrementalSync) {
+    loadLog(`Performing incremental sync since ${new Date(lastSyncTime * 1000).toISOString()}`);
+  } else {
+    loadLog(`Performing full sync`);
+  }
+
   // Check which relays support NIP-77
   const supported = await Promise.all(
     relays.map(async (url) => {
@@ -127,6 +152,9 @@ async function loadEventsInternal(pubkey: string, relays: string[]): Promise<Par
   loadLog(`Found ${syncRelayUrls.length} NIP-77 relays and ${requestRelayUrls.length} non-NIP-77 relays`);
 
   const filter: Filter = { kinds: [NSITE_KIND], authors: [pubkey] };
+  // Add 'since' filter for incremental sync
+  if (isIncrementalSync) filter.since = lastSyncTime;
+
   const requests: Promise<NostrEvent[]>[] = [];
 
   // Use pool.sync for NIP-77 relays
@@ -181,11 +209,26 @@ async function loadEventsInternal(pubkey: string, relays: string[]): Promise<Par
   // Wait for both requests to complete
   await Promise.allSettled(requests);
 
-  // Pass all events through the event store to deduplicate
-  const events = eventStore.getByFilters(filter);
+  // Get all events from the event store (includes cached + newly fetched)
+  // The event store automatically deduplicates by event ID
+  const allEvents = eventStore.getByFilters({ kinds: [NSITE_KIND], authors: [pubkey] });
 
-  // Parse events
-  const parsedEvents = events.map(parseNsiteEvent).filter((e): e is ParsedEvent => !!e);
+  if (isIncrementalSync) {
+    const newEventCount = allEvents.length - (cachedEvents?.length || 0);
+    loadLog(`Fetched ${newEventCount} new events, total ${allEvents.length} events in store`);
+  } else {
+    loadLog(`Fetched ${allEvents.length} events`);
+  }
+
+  // Update the last sync timestamp to current time
+  const currentTime = Math.floor(Date.now() / 1000);
+  await pubkeyLastSync.set(pubkey, currentTime);
+
+  // Cache the raw NostrEvent objects
+  await pubkeyEvents.set(pubkey, allEvents);
+
+  // Parse events for return
+  const parsedEvents = allEvents.map(parseNsiteEvent).filter((e): e is ParsedEvent => !!e);
 
   // Deduplicate by path, keeping the most recent
   const eventsByPath = new Map<string, ParsedEvent>();
@@ -197,10 +240,7 @@ async function loadEventsInternal(pubkey: string, relays: string[]): Promise<Par
   }
 
   const finalEvents = Array.from(eventsByPath.values());
-  loadLog(`Found ${finalEvents.length} nsite events`);
-
-  // Cache the results
-  await pubkeyEvents.set(pubkey, finalEvents);
+  loadLog(`Returning ${finalEvents.length} parsed nsite events`);
 
   return finalEvents;
 }

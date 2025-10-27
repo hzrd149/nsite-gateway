@@ -1,4 +1,5 @@
 import Keyv, { KeyvOptions } from "keyv";
+import { NostrEvent } from "nostr-tools";
 import { CACHE_PATH, CACHE_TIME } from "./env.js";
 import logger from "./logger.js";
 import { ParsedEvent } from "./events.js";
@@ -69,9 +70,16 @@ export const blobURLs = new Keyv<string[] | undefined>({
 });
 
 /** A cache that maps a pubkey to all their nsite events ( pubkey -> events[] ) */
-export const pubkeyEvents = new Keyv<ParsedEvent[] | undefined>({
+export const pubkeyEvents = new Keyv<NostrEvent[] | undefined>({
   ...opts,
   ...json,
   namespace: "nsite-events",
   ttl: CACHE_TIME * 1000,
+});
+
+/** A cache that stores the last sync timestamp for each pubkey ( pubkey -> timestamp ) */
+export const pubkeyLastSync = new Keyv<number | undefined>({
+  ...opts,
+  ...json,
+  namespace: "last-sync",
 });

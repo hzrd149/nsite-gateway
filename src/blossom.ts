@@ -15,7 +15,7 @@ export async function findBlobURLs(sha256: string, servers: string[]): Promise<s
   const id = sha256.slice(0, 6);
   const requestLog = log.extend(id);
 
-  requestLog(`Checking ${servers.length} servers for ${sha256}`);
+  requestLog(`Checking ${servers.length} servers`);
   const results = await Promise.all(
     servers.map(async (server) => {
       const url = new URL(sha256, server);
