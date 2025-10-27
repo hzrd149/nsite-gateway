@@ -1,5 +1,16 @@
 # nsite-gateway
 
+## 1.2.0
+
+### Minor Changes
+
+- 97518b1: Use `applesauce-relay` for relay connections
+- 49ab586: Add incremental sync for pubkeys events
+
+### Patch Changes
+
+- 97518b1: Bump nostr-tools
+
 ## 1.1.1
 
 ### Patch Changes
