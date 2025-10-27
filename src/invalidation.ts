@@ -6,16 +6,19 @@ import pool from "./nostr.js";
 import { NSITE_KIND } from "./const.js";
 import logger from "./logger.js";
 import { pathBlobs } from "./cache.js";
+import { onlyEvents } from "applesauce-relay";
 
 const log = logger.extend("invalidation");
 
 export function watchInvalidation() {
   if (SUBSCRIPTION_RELAYS.length === 0) return;
 
-  logger(`Listening for new nsite events on: ${SUBSCRIPTION_RELAYS.join(", ")}`);
+  log(`Listening for new nsite events on: ${SUBSCRIPTION_RELAYS.join(", ")}`);
 
-  pool.subscribeMany(SUBSCRIPTION_RELAYS, [{ kinds: [NSITE_KIND], since: Math.round(Date.now() / 1000) - 60 * 60 }], {
-    onevent: async (event) => {
+  pool
+    .subscription(SUBSCRIPTION_RELAYS, { kinds: [NSITE_KIND], since: Math.round(Date.now() / 1000) - 60 * 60 })
+    .pipe(onlyEvents())
+    .subscribe(async (event) => {
       try {
         const parsed = parseNsiteEvent(event);
         if (parsed) {
@@ -26,6 +29,5 @@ export function watchInvalidation() {
       } catch (error) {
         console.log(`Failed to invalidate ${event.id}`);
       }
-    },
-  });
+    });
 }

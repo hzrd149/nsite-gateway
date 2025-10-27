@@ -206,7 +206,10 @@ process.on("unhandledRejection", (reason, promise) => {
 
 async function shutdown() {
   console.log("Shutting down...");
-  pool.destroy();
+
+  // Close all relay connections
+  for (const [_url, relay] of pool.relays) relay.close();
+
   process.exit(0);
 }
 
