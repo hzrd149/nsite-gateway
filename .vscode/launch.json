@@ -8,7 +8,6 @@
       "args": ["./src/index.ts"],
       "runtimeArgs": ["--loader", "@swc-node/register/esm"],
       "cwd": "${workspaceRoot}",
-      "protocol": "inspector",
       "internalConsoleOptions": "openOnSessionStart",
       "outputCapture": "std",
       "env": {
@@ -22,7 +21,6 @@
       "args": ["./src/index.ts"],
       "runtimeArgs": ["--loader", "@swc-node/register/esm"],
       "cwd": "${workspaceRoot}",
-      "protocol": "inspector",
       "internalConsoleOptions": "openOnSessionStart",
       "outputCapture": "std",
       "env": {

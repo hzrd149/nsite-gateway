@@ -12,6 +12,9 @@ const LOOKUP_RELAYS = process.env.LOOKUP_RELAYS?.split(",").map((u) => u.trim())
   "wss://purplepag.es/",
 ];
 
+// Relays to cache events and blobs on
+const CACHE_RELAYS = process.env.CACHE_RELAYS?.split(",").map((u) => u.trim());
+
 // Relays to subscribe to for new nsite events
 const SUBSCRIPTION_RELAYS = process.env.SUBSCRIPTION_RELAYS?.split(",").map((u) => u.trim()) ?? [
   "wss://nos.lol",
@@ -52,8 +55,9 @@ const ONION_HOST = process.env.ONION_HOST;
 export {
   NSITE_HOMEPAGE,
   NSITE_HOMEPAGE_DIR,
-  SUBSCRIPTION_RELAYS,
   LOOKUP_RELAYS,
+  CACHE_RELAYS,
+  SUBSCRIPTION_RELAYS,
   BLOSSOM_SERVERS,
   MAX_FILE_SIZE,
   CACHE_PATH,

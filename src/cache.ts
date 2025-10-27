@@ -67,3 +67,11 @@ export const blobURLs = new Keyv<string[] | undefined>({
   namespace: "blobs",
   ttl: CACHE_TIME * 1000,
 });
+
+/** A cache that maps a pubkey to all their nsite events ( pubkey -> events[] ) */
+export const pubkeyEvents = new Keyv<ParsedEvent[] | undefined>({
+  ...opts,
+  ...json,
+  namespace: "nsite-events",
+  ttl: CACHE_TIME * 1000,
+});
