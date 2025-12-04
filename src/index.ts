@@ -29,7 +29,7 @@ import {
 import pool, { getUserBlossomServers, getUserOutboxes } from "./nostr.js";
 import logger from "./logger.js";
 import { watchInvalidation } from "./invalidation.js";
-import { NSITE_KIND } from "./const.js";
+import { NSITE_ROOT_SITE_KIND, NSITE_MANIFEST_KIND, NSITE_FILE_KIND } from "./const.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -65,10 +65,12 @@ app.use(async (ctx, next) => {
 
 // handle nsite requests
 app.use(async (ctx, next) => {
-  let pubkey = await resolvePubkeyFromHostname(ctx.hostname);
+  let resolved = await resolvePubkeyFromHostname(ctx.hostname);
+  let pubkey: string | undefined;
+  let identifier = "";
 
   let fallthrough = false;
-  if (!pubkey && NSITE_HOMEPAGE && (!PUBLIC_DOMAIN || ctx.hostname === PUBLIC_DOMAIN)) {
+  if (!resolved && NSITE_HOMEPAGE && (!PUBLIC_DOMAIN || ctx.hostname === PUBLIC_DOMAIN)) {
     const parsed = nip19.decode(NSITE_HOMEPAGE);
     // TODO: use the relays in the nprofile
 
@@ -77,6 +79,9 @@ app.use(async (ctx, next) => {
 
     // Fallback to public dir if path cannot be found on the nsite homepage
     if (pubkey) fallthrough = true;
+  } else if (resolved) {
+    pubkey = resolved.pubkey;
+    identifier = resolved.identifier;
   }
 
   if (!pubkey) {
@@ -96,10 +101,10 @@ app.use(async (ctx, next) => {
   if (relays.length === 0) throw new Error("No relays found");
 
   // fetch servers and events in parallel
-  let [servers, event] = await Promise.all([
+  let [userServers, event] = await Promise.all([
     getUserBlossomServers(pubkey, relays).then((s) => s || []),
-    getNsiteBlob(pubkey, ctx.path, relays).then((e) => {
-      if (!e) return getNsiteBlob(pubkey, "/404.html", relays);
+    getNsiteBlob(pubkey, ctx.path, relays, identifier).then((e) => {
+      if (!e) return getNsiteBlob(pubkey, "/404.html", relays, identifier);
       else return e;
     }),
   ]);
@@ -108,11 +113,22 @@ app.use(async (ctx, next) => {
     if (fallthrough) return next();
 
     ctx.status = 404;
-    ctx.body = `Not Found: no events found\npath: ${ctx.path}\nkind: ${NSITE_KIND}\npubkey: ${pubkey}\nrelays: ${relays.join(", ")}`;
+    ctx.body = `Not Found: no events found\npath: ${ctx.path}\nkinds: ${NSITE_ROOT_SITE_KIND}, ${NSITE_MANIFEST_KIND}, ${NSITE_FILE_KIND}\npubkey: ${pubkey}\nrelays: ${relays.join(", ")}`;
     return;
   }
 
-  // always fetch from additional servers
+  // Prioritize servers: manifest servers first, then user's 10063 servers, then configured servers
+  let servers: string[] = [];
+
+  // 1. Try manifest server hints first (if available)
+  if (event.servers && event.servers.length > 0) {
+    servers.push(...event.servers);
+  }
+
+  // 2. Fall back to user's 10063 blossom servers
+  servers.push(...userServers);
+
+  // 3. Always include configured BLOSSOM_SERVERS as final fallback
   servers.push(...BLOSSOM_SERVERS);
 
   if (servers.length === 0) throw new Error("Failed to find blossom servers");

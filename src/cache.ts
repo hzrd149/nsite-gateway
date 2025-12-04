@@ -53,11 +53,19 @@ export const pubkeyRelays = new Keyv<string[] | undefined>({
   ttl: CACHE_TIME * 1000,
 });
 
-/** A cache that maps a pubkey + path to sha256 hash of the blob ( pubkey/path -> sha256 ) */
+/** A cache that maps a pubkey + identifier + path to sha256 hash of the blob ( pubkey:identifier:path -> sha256 ) */
 export const pathBlobs = new Keyv<ParsedEvent | undefined>({
   ...opts,
   ...json,
   namespace: "paths",
+  ttl: CACHE_TIME * 1000,
+});
+
+/** A cache that maps a pubkey + identifier to their site manifest event ( pubkey:identifier -> manifest ) */
+export const siteManifests = new Keyv<NostrEvent | undefined>({
+  ...opts,
+  ...json,
+  namespace: "manifests",
   ttl: CACHE_TIME * 1000,
 });
 

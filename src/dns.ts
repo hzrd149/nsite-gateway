@@ -22,23 +22,50 @@ export function getTxtRecords(hostname: string): Promise<string[][]> {
 }
 
 function extractPubkeyFromHostname(hostname: string): string | undefined {
-  const [npub] = hostname.split(".");
+  const parts = hostname.split(".");
 
-  if (npub.startsWith("npub")) {
-    const parsed = nip19.decode(npub);
-    if (parsed.type !== "npub") throw new Error("Expected npub");
-
-    return parsed.data;
+  // Check if any part is an npub
+  for (const part of parts) {
+    if (part.startsWith("npub")) {
+      const parsed = nip19.decode(part);
+      if (parsed.type !== "npub") throw new Error("Expected npub");
+      return parsed.data;
+    }
   }
+}
+
+/**
+ * Extracts the identifier from a hostname
+ * Format: [identifier].<npub>.nsite-host.com
+ * Returns empty string "" for root site (no identifier subdomain)
+ */
+function extractIdentifierFromHostname(hostname: string): string {
+  const parts = hostname.split(".");
+
+  // Find the npub part
+  const npubIndex = parts.findIndex((part) => part.startsWith("npub"));
+
+  // If npub is found and there's a part before it, that's the identifier
+  if (npubIndex > 0) {
+    return parts[0];
+  }
+
+  // Root site (no identifier)
+  return "";
 }
 
 const log = logger.extend("DNS");
 
-export async function resolvePubkeyFromHostname(hostname: string): Promise<string | undefined> {
+export async function resolvePubkeyFromHostname(
+  hostname: string,
+): Promise<{ pubkey: string; identifier: string } | undefined> {
   if (hostname === "localhost") return undefined;
 
   const cached = await pubkeyDomains.get(hostname);
-  if (cached) return cached;
+  if (cached) {
+    const identifier = extractIdentifierFromHostname(hostname);
+    return { pubkey: cached, identifier };
+  }
 
   // check if domain contains an npub
   let pubkey = extractPubkeyFromHostname(hostname);
@@ -88,8 +115,14 @@ export async function resolvePubkeyFromHostname(hostname: string): Promise<strin
     }
   }
 
-  log(`Resolved ${hostname} to ${pubkey}`);
+  if (!pubkey) {
+    log(`Failed to resolve ${hostname}`);
+    return undefined;
+  }
+
+  const identifier = extractIdentifierFromHostname(hostname);
+  log(`Resolved ${hostname} to ${pubkey} with identifier "${identifier}"`);
   await pubkeyDomains.set(hostname, pubkey);
 
-  return pubkey;
+  return { pubkey, identifier };
 }

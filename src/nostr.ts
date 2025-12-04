@@ -11,8 +11,8 @@ import { Filter, NostrEvent } from "nostr-tools";
 import { npubEncode } from "nostr-tools/nip19";
 import { debounceTime, defaultIfEmpty, take, takeUntil, takeWhile, tap, timeout, timer, toArray } from "rxjs";
 
-import { pubkeyEvents, pubkeyLastSync, pubkeyRelays, pubkeyServers } from "./cache.js";
-import { NSITE_KIND } from "./const.js";
+import { pubkeyEvents, pubkeyLastSync, pubkeyRelays, pubkeyServers, siteManifests } from "./cache.js";
+import { NSITE_ROOT_SITE_KIND, NSITE_MANIFEST_KIND, NSITE_FILE_KIND } from "./const.js";
 import { CACHE_RELAYS, LOOKUP_RELAYS } from "./env.js";
 import { ParsedEvent, parseNsiteEvent } from "./events.js";
 import { createPromiseLock } from "./helpers/promise-lock.js";
@@ -151,7 +151,7 @@ async function loadEventsInternal(pubkey: string, relays: string[]): Promise<Par
 
   loadLog(`Found ${syncRelayUrls.length} NIP-77 relays and ${requestRelayUrls.length} non-NIP-77 relays`);
 
-  const filter: Filter = { kinds: [NSITE_KIND], authors: [pubkey] };
+  const filter: Filter = { kinds: [NSITE_ROOT_SITE_KIND, NSITE_MANIFEST_KIND, NSITE_FILE_KIND], authors: [pubkey] };
   // Add 'since' filter for incremental sync
   if (isIncrementalSync) filter.since = lastSyncTime;
 
@@ -211,7 +211,10 @@ async function loadEventsInternal(pubkey: string, relays: string[]): Promise<Par
 
   // Get all events from the event store (includes cached + newly fetched)
   // The event store automatically deduplicates by event ID
-  const allEvents = eventStore.getByFilters({ kinds: [NSITE_KIND], authors: [pubkey] });
+  const allEvents = eventStore.getByFilters({
+    kinds: [NSITE_ROOT_SITE_KIND, NSITE_MANIFEST_KIND, NSITE_FILE_KIND],
+    authors: [pubkey],
+  });
 
   if (isIncrementalSync) {
     const newEventCount = allEvents.length - (cachedEvents?.length || 0);
@@ -257,5 +260,60 @@ export function requestEvents(relays: string[], filter: Filter): Promise<NostrEv
     pool.request(relays, filter).pipe(onlyEvents(), mapEventsToStore(eventStore), mapEventsToTimeline()),
   );
 }
+
+/**
+ * Internal function that loads a site manifest for a pubkey
+ * - Root site (identifier === ""): Queries kind 15128, no d tag
+ * - Identifier-specific site (identifier !== ""): Queries kind 35128, with d tag
+ */
+async function loadManifestInternal(
+  pubkey: string,
+  identifier: string,
+  relays: string[],
+): Promise<NostrEvent | undefined> {
+  const key = `${pubkey}:${identifier}`;
+  const loadLog = log.extend(npubEncode(pubkey));
+
+  // Check cache first
+  const cached = await siteManifests.get(key);
+  if (cached) {
+    const siteType = identifier === "" ? "root site" : `identifier site "${identifier}"`;
+    loadLog(`Using cached manifest for ${siteType}`);
+    return cached;
+  }
+
+  const siteType = identifier === "" ? "root site" : `identifier site "${identifier}"`;
+  loadLog(`Loading manifest for ${siteType}`);
+
+  // Query the appropriate manifest kind based on whether this is a root or identifier-specific site
+  // Root site: kind 15128 (replaceable event, NO d tag)
+  // Identifier site: kind 35128 (addressable event, WITH d tag)
+  const manifest = await lastValueFrom(
+    addressLoader({
+      kind: identifier === "" ? NSITE_ROOT_SITE_KIND : NSITE_MANIFEST_KIND,
+      pubkey,
+      ...(identifier !== "" && { d: identifier }), // Only include d field for identifier-specific sites
+      relays,
+    }).pipe(defaultIfEmpty(undefined)),
+  );
+
+  if (!manifest) {
+    loadLog(`No manifest found for ${siteType}`);
+    return undefined;
+  }
+
+  loadLog(`Found manifest for ${siteType}`);
+
+  // Cache the manifest
+  await siteManifests.set(key, manifest);
+
+  return manifest;
+}
+
+/** Load a site manifest for a pubkey and identifier (with promise locking) */
+export const loadManifest = createPromiseLock(
+  loadManifestInternal,
+  (pubkey: string, identifier: string) => `${pubkey}:${identifier}`,
+);
 
 export default pool;
