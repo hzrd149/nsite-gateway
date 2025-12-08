@@ -11,7 +11,7 @@ This nip describes a method by which static websites can be hosted under public 
 A site manifest event MUST be a replaceable or an addressable event as defined in [NIP-01](01.md). There are two types of site manifest event kinds:
 
 - **Root site**: Uses kind `15128` and MUST NOT include a `d` tag. This is a single replaceable event per pubkey and serves as the root site for the pubkey.
-- **Named sites**: Uses kind `35128` and MUST have a `d` tag containing the site identifier. These can be smaller websites under a pubkey and can be throught of as sub-domains.
+- **Named sites**: Uses kind `35128` and MUST have a `d` tag containing the site identifier. These can be smaller websites under a pubkey and can be thought of as sub-domains.
 
 The event MUST include one or more `path` tags that map absolute paths to sha256 hashes. Each `path` tag MUST have the format `["path", "/absolute/path", "sha256hash"]` where:
 

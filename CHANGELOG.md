@@ -1,5 +1,11 @@
 # nsite-gateway
 
+## 1.3.0
+
+### Minor Changes
+
+- Support new site manifest kinds `15128` and `35128`
+
 ## 1.2.0
 
 ### Minor Changes
