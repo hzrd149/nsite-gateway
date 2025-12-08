@@ -113,7 +113,7 @@ app.use(async (ctx, next) => {
     if (fallthrough) return next();
 
     ctx.status = 404;
-    ctx.body = `Not Found: no events found\npath: ${ctx.path}\nkinds: ${NSITE_ROOT_SITE_KIND}, ${NSITE_MANIFEST_KIND}, ${NSITE_FILE_KIND}\npubkey: ${pubkey}\nrelays: ${relays.join(", ")}`;
+    ctx.body = `Not Found: The requested path "${ctx.path}" could not be found on this site.`;
     return;
   }
 
@@ -131,7 +131,12 @@ app.use(async (ctx, next) => {
   // 3. Always include configured BLOSSOM_SERVERS as final fallback
   servers.push(...BLOSSOM_SERVERS);
 
-  if (servers.length === 0) throw new Error("Failed to find blossom servers");
+  // Per NIP spec: If no servers are available, respond with 404
+  if (servers.length === 0) {
+    ctx.status = 404;
+    ctx.body = "Not Found: No blossom servers available";
+    return;
+  }
 
   try {
     // Prepare headers for range requests
@@ -143,7 +148,7 @@ app.use(async (ctx, next) => {
     const res = await streamBlob(event.sha256, servers, requestHeaders);
     if (!res) {
       ctx.status = 502;
-      ctx.body = `Failed to find blob\npath: ${event.path}\nsha256: ${event.sha256}\nservers: ${servers.join(", ")}`;
+      ctx.body = `Bad Gateway: Unable to retrieve the requested file from storage servers.`;
       return;
     }
 
