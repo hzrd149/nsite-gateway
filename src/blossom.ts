@@ -7,7 +7,7 @@ import logger from "./logger.js";
 
 const log = logger.extend("blossom");
 
-if(BLOSSOM_PROXY) log(`Using blossom proxy: ${BLOSSOM_PROXY}`);
+if (BLOSSOM_PROXY) log(`Using blossom proxy: ${BLOSSOM_PROXY}`);
 
 /**
  * Extracts domain name from a server URL (removes protocol)
@@ -49,7 +49,6 @@ export async function findBlobURLs(
   options?: {
     pubkey?: string;
     blossomProxy?: string;
-    allServers?: string[];
   },
 ): Promise<string[]> {
   const cache = await blobURLs.get(sha256);
@@ -58,7 +57,7 @@ export async function findBlobURLs(
   const id = sha256.slice(0, 6);
   const requestLog = log.extend(id);
 
-  const { pubkey, blossomProxy, allServers = servers } = options || {};
+  const { pubkey, blossomProxy } = options || {};
 
   // Build proxy URL if provided (always try proxy first without checking)
   let proxyUrlString: string | null = null;
@@ -66,16 +65,14 @@ export async function findBlobURLs(
     try {
       const proxyUrl = new URL(sha256, blossomProxy);
       // Add BUD-10 query parameters
-      const queryParams = buildBud10QueryParams(allServers, pubkey);
+      const queryParams = buildBud10QueryParams(servers, pubkey);
       if (queryParams) {
         proxyUrl.search = queryParams;
       }
       proxyUrlString = proxyUrl.toString();
       requestLog(`Will try blossom proxy first: ${proxyUrl.hostname}`);
     } catch (error) {
-      requestLog(
-        `✗ Failed to build BLOSSOM_PROXY URL: ${error instanceof Error ? error.message : "Unknown error"}`,
-      );
+      requestLog(`✗ Failed to build BLOSSOM_PROXY URL: ${error instanceof Error ? error.message : "Unknown error"}`);
     }
   }
 
@@ -119,7 +116,6 @@ export async function streamBlob(
   options?: {
     pubkey?: string;
     blossomProxy?: string;
-    allServers?: string[];
   },
 ): Promise<IncomingMessage | undefined> {
   const id = sha256.slice(0, 6);
@@ -130,12 +126,12 @@ export async function streamBlob(
     return undefined;
   }
 
-  const { pubkey, blossomProxy, allServers = servers } = options || {};
+  const { pubkey, blossomProxy } = options || {};
 
   streamLog(`Starting blob stream for ${sha256} from ${servers.length} servers`);
 
   // First find all available URLs (including BLOSSOM_PROXY if configured)
-  const urls = await findBlobURLs(sha256, servers, { pubkey, blossomProxy, allServers });
+  const urls = await findBlobURLs(sha256, servers, { pubkey, blossomProxy });
   if (urls.length === 0) {
     streamLog(`No available URLs found for blob ${sha256}`);
     return undefined;

@@ -30,6 +30,7 @@ import {
 import { getNsiteBlob } from "./events.js";
 import { watchInvalidation } from "./invalidation.js";
 import pool, { getUserBlossomServers, getUserOutboxes } from "./nostr.js";
+import { mergeBlossomServers } from "applesauce-core/helpers";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -137,18 +138,27 @@ app.use(async (ctx, next) => {
   }
 
   // Prioritize servers: manifest servers first, then user's 10063 servers, then configured servers
-  let servers: string[] = [];
+  const servers: string[] = [];
+  const seen = new Set<string>();
+
+  // Helper to add server only if not seen
+  function addServer(server: string) {
+    if (!seen.has(server)) {
+      seen.add(server);
+      servers.push(server);
+    }
+  }
 
   // 1. Try manifest server hints first (if available)
   if (event.servers && event.servers.length > 0) {
-    servers.push(...event.servers);
+    event.servers.forEach(addServer);
   }
 
   // 2. Fall back to user's 10063 blossom servers
-  servers.push(...userServers);
+  userServers.forEach(addServer);
 
   // 3. Always include configured BLOSSOM_SERVERS as final fallback
-  servers.push(...BLOSSOM_SERVERS);
+  BLOSSOM_SERVERS.forEach(addServer);
 
   // Per NIP spec: If no servers are available, respond with 404
   if (servers.length === 0) {
@@ -156,17 +166,6 @@ app.use(async (ctx, next) => {
     ctx.body = "Not Found: No blossom servers available";
     return;
   }
-
-  // Collect all known blossom servers for BUD-10 hints (xs parameter)
-  // This includes all servers we know about, even if not in the priority list
-  const allKnownServers: string[] = [];
-  if (event.servers && event.servers.length > 0) {
-    allKnownServers.push(...event.servers);
-  }
-  allKnownServers.push(...userServers);
-  allKnownServers.push(...BLOSSOM_SERVERS);
-  // Remove duplicates
-  const uniqueServers = Array.from(new Set(allKnownServers));
 
   try {
     // Prepare headers for range requests
@@ -178,7 +177,6 @@ app.use(async (ctx, next) => {
     const res = await streamBlob(event.sha256, servers, requestHeaders, {
       pubkey,
       blossomProxy: BLOSSOM_PROXY,
-      allServers: uniqueServers,
     });
     if (!res) {
       ctx.status = 502;
