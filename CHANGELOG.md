@@ -1,5 +1,12 @@
 # nsite-gateway
 
+## 1.4.0
+
+### Minor Changes
+
+- 3b0d2f8: Auto detect local blossom and nostr cache servers
+- 3b0d2f8: Add BLOSSOM_PROXY env for local blossom cache
+
 ## 1.3.0
 
 ### Minor Changes
