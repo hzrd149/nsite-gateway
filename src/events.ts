@@ -80,9 +80,7 @@ export function parseManifestEvent(event: NostrEvent): ParsedManifest | undefine
   }
 
   // Extract server hints
-  const servers = event.tags
-    .filter((t) => t[0] === "server" && t[1])
-    .map((t) => t[1]);
+  const servers = event.tags.filter((t) => t[0] === "server" && t[1]).map((t) => t[1]);
 
   // Extract metadata
   const title = event.tags.find((t) => t[0] === "title")?.[1];
@@ -110,8 +108,8 @@ export async function getNsiteBlob(
   pubkey: string,
   path: string,
   relays: string[],
-  identifier: string = ""
-): Promise<ParsedEvent & { servers?: string[] } | undefined> {
+  identifier: string = "",
+): Promise<(ParsedEvent & { servers?: string[] }) | undefined> {
   const key = `${pubkey}:${identifier}:${path}`;
 
   const cached = await pathBlobs.get(key);

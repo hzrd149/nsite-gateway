@@ -9,10 +9,9 @@ import { createAddressLoader, createEventLoader } from "applesauce-loaders/loade
 import { onlyEvents, RelayPool, SyncDirection } from "applesauce-relay";
 import { Filter, NostrEvent } from "nostr-tools";
 import { npubEncode } from "nostr-tools/nip19";
-import { debounceTime, defaultIfEmpty, take, takeUntil, takeWhile, tap, timeout, timer, toArray } from "rxjs";
-
+import { debounceTime, defaultIfEmpty, take, takeUntil, timer } from "rxjs";
 import { pubkeyEvents, pubkeyLastSync, pubkeyRelays, pubkeyServers, siteManifests } from "./cache.js";
-import { NSITE_ROOT_SITE_KIND, NSITE_MANIFEST_KIND, NSITE_FILE_KIND } from "./const.js";
+import { NSITE_FILE_KIND, NSITE_MANIFEST_KIND, NSITE_ROOT_SITE_KIND } from "./const.js";
 import { CACHE_RELAYS, LOOKUP_RELAYS } from "./env.js";
 import { ParsedEvent, parseNsiteEvent } from "./events.js";
 import { createPromiseLock } from "./helpers/promise-lock.js";
@@ -44,7 +43,7 @@ eventStore.eventLoader = eventLoader;
 
 // Send all new events to the cache relays
 if (CACHE_RELAYS) {
-  log(`Persisting events to cache relays: ${CACHE_RELAYS.join(", ")}`);
+  log(`Using cache relays: ${CACHE_RELAYS.join(", ")}`);
 
   persistEventsToCache(eventStore, async (events) => {
     await Promise.allSettled(events.map((event) => pool.publish(CACHE_RELAYS!, event)));

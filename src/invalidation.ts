@@ -13,7 +13,7 @@ const log = logger.extend("invalidation");
 export function watchInvalidation() {
   if (SUBSCRIPTION_RELAYS.length === 0) return;
 
-  log(`Listening for new nsite events on: ${SUBSCRIPTION_RELAYS.join(", ")}`);
+  log(`Listening for new site manifest events on: ${SUBSCRIPTION_RELAYS.join(", ")}`);
 
   pool
     .subscription(SUBSCRIPTION_RELAYS, {

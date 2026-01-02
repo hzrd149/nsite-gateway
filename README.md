@@ -75,3 +75,26 @@ Install Tor ([Documentation](https://community.torproject.org/onion-services/set
 TOR_PROXY=127.0.0.1:9050
 I2P_PROXY=127.0.0.1:4447
 ```
+
+### Blossom Proxy
+
+You can configure a `BLOSSOM_PROXY` server that will be checked first for all blossom blobs before falling back to other servers. When set, the gateway will:
+
+1. Check the proxy server first for each blob request
+2. Include BUD-10 discovery hints as query parameters:
+   - `xs` parameters: Domain names of all known blossom servers (server hints)
+   - `as` parameter: The author's pubkey (author hint)
+
+This allows the proxy to use these hints to locate blobs on other servers if it doesn't have them cached.
+
+The blossom proxy specification is defined in [BUD-11](https://github.com/hzrd149/blossom/pull/89). For an example implementation, see [flower-cache](https://github.com/hzrd149/flower-cache).
+
+```sh
+BLOSSOM_PROXY="https://blossom-proxy.example.com"
+```
+
+The proxy URL will be constructed as:
+
+```
+<BLOSSOM_PROXY>/<sha256>?xs=server1.com&xs=server2.com&as=<pubkey>
+```

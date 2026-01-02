@@ -1,19 +1,83 @@
 import { IncomingMessage } from "node:http";
 
-import { MAX_FILE_SIZE } from "./env.js";
+import { BLOSSOM_PROXY, MAX_FILE_SIZE } from "./env.js";
 import { makeRequestWithAbort } from "./helpers/http.js";
 import { blobURLs } from "./cache.js";
 import logger from "./logger.js";
 
 const log = logger.extend("blossom");
 
+if(BLOSSOM_PROXY) log(`Using blossom proxy: ${BLOSSOM_PROXY}`);
+
+/**
+ * Extracts domain name from a server URL (removes protocol)
+ */
+function extractDomain(serverUrl: string): string {
+  try {
+    const url = new URL(serverUrl);
+    return url.hostname;
+  } catch {
+    // If it's not a full URL, assume it's already a domain
+    return serverUrl.replace(/^https?:\/\//, "");
+  }
+}
+
+/**
+ * Builds BUD-10 query parameters for blossom proxy
+ */
+function buildBud10QueryParams(allServers: string[], pubkey?: string): string {
+  const params = new URLSearchParams();
+
+  // Add xs (server hints) - extract domains from all servers
+  for (const server of allServers) {
+    const domain = extractDomain(server);
+    params.append("xs", domain);
+  }
+
+  // Add as (author) if pubkey is provided
+  if (pubkey) {
+    params.append("as", pubkey);
+  }
+
+  return params.toString();
+}
+
 /** Checks all servers for a blob and returns the URLs */
-export async function findBlobURLs(sha256: string, servers: string[]): Promise<string[]> {
+export async function findBlobURLs(
+  sha256: string,
+  servers: string[],
+  options?: {
+    pubkey?: string;
+    blossomProxy?: string;
+    allServers?: string[];
+  },
+): Promise<string[]> {
   const cache = await blobURLs.get(sha256);
   if (cache) return cache;
 
   const id = sha256.slice(0, 6);
   const requestLog = log.extend(id);
+
+  const { pubkey, blossomProxy, allServers = servers } = options || {};
+
+  // Build proxy URL if provided (always try proxy first without checking)
+  let proxyUrlString: string | null = null;
+  if (blossomProxy) {
+    try {
+      const proxyUrl = new URL(sha256, blossomProxy);
+      // Add BUD-10 query parameters
+      const queryParams = buildBud10QueryParams(allServers, pubkey);
+      if (queryParams) {
+        proxyUrl.search = queryParams;
+      }
+      proxyUrlString = proxyUrl.toString();
+      requestLog(`Will try blossom proxy first: ${proxyUrl.hostname}`);
+    } catch (error) {
+      requestLog(
+        `✗ Failed to build BLOSSOM_PROXY URL: ${error instanceof Error ? error.message : "Unknown error"}`,
+      );
+    }
+  }
 
   requestLog(`Checking ${servers.length} servers`);
   const results = await Promise.all(
@@ -39,9 +103,12 @@ export async function findBlobURLs(sha256: string, servers: string[]): Promise<s
 
   const filtered = results.filter((url) => url !== null);
 
-  requestLog(`Found ${filtered.length}/${servers.length} Servers`);
-  await blobURLs.set(sha256, filtered);
-  return filtered;
+  // Always prepend proxy URL if set (try proxy first)
+  const finalUrls = proxyUrlString ? [proxyUrlString, ...filtered] : filtered;
+
+  requestLog(`Found ${filtered.length}/${servers.length} servers${proxyUrlString ? " (+ proxy)" : ""}`);
+  await blobURLs.set(sha256, finalUrls);
+  return finalUrls;
 }
 
 /** Downloads a file from multiple servers with optional range support */
@@ -49,6 +116,11 @@ export async function streamBlob(
   sha256: string,
   servers: string[],
   headers?: Record<string, string>,
+  options?: {
+    pubkey?: string;
+    blossomProxy?: string;
+    allServers?: string[];
+  },
 ): Promise<IncomingMessage | undefined> {
   const id = sha256.slice(0, 6);
   const streamLog = log.extend(id);
@@ -58,10 +130,12 @@ export async function streamBlob(
     return undefined;
   }
 
+  const { pubkey, blossomProxy, allServers = servers } = options || {};
+
   streamLog(`Starting blob stream for ${sha256} from ${servers.length} servers`);
 
-  // First find all available URLs
-  const urls = await findBlobURLs(sha256, servers);
+  // First find all available URLs (including BLOSSOM_PROXY if configured)
+  const urls = await findBlobURLs(sha256, servers, { pubkey, blossomProxy, allServers });
   if (urls.length === 0) {
     streamLog(`No available URLs found for blob ${sha256}`);
     return undefined;
@@ -87,6 +161,7 @@ export async function streamBlob(
         controller.abort();
       }, 10_000);
 
+      // URL already has query parameters from findBlobURLs if it's the proxy
       const response = await makeRequestWithAbort(url, controller, headers);
       res = response;
       clearTimeout(timeout);

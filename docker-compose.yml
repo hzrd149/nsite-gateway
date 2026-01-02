@@ -14,6 +14,7 @@ services:
       LOOKUP_RELAYS: wss://user.kindpag.es,wss://purplepag.es
       SUBSCRIPTION_RELAYS: wss://nostrue.com/,wss://nos.lol/,wss://relay.damus.io/,wss://purplerelay.com/
       CACHE_PATH: redis://redis:6379
+      BLOSSOM_PROXY: http://blossom-cache:24242
     depends_on:
       - redis
 
@@ -30,7 +31,14 @@ services:
     depends_on:
       - nsite
 
+  blossom-cache:
+    image: ghcr.io/hzrd149/flower-cache:latest
+    restart: unless-stopped
+    volumes:
+      - blossom-cache:/cache
+
 volumes:
   redis-data:
   caddy_data:
   caddy_config:
+  blossom-cache:

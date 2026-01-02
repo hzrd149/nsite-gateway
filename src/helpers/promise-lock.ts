@@ -25,9 +25,7 @@ export function createPromiseLock<Args extends any[], Result>(
 
     // Return existing promise if already loading
     const existingPromise = locks.get(key);
-    if (existingPromise) {
-      return existingPromise;
-    }
+    if (existingPromise) return existingPromise;
 
     // Create new promise with cleanup
     const promise = (async () => {

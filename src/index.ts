@@ -1,21 +1,22 @@
 #!/usr/bin/env node
-import "./polyfill.js";
-import Koa from "koa";
-import serve from "koa-static";
-import path from "node:path";
 import cors from "@koa/cors";
-import fs from "node:fs";
-import { fileURLToPath } from "node:url";
-import mime from "mime";
+import Koa from "koa";
+import compress from "koa-compress";
 import morgan from "koa-morgan";
 import range from "koa-range";
-import { npubEncode } from "nostr-tools/nip19";
+import serve from "koa-static";
+import mime from "mime";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { nip19 } from "nostr-tools";
+import { npubEncode } from "nostr-tools/nip19";
+import "./polyfill.js";
 
-import { resolvePubkeyFromHostname } from "./dns.js";
-import { getNsiteBlob } from "./events.js";
 import { streamBlob } from "./blossom.js";
+import { resolvePubkeyFromHostname } from "./dns.js";
 import {
+  BLOSSOM_PROXY,
   BLOSSOM_SERVERS,
   HOST,
   NSITE_HOMEPAGE,
@@ -26,10 +27,9 @@ import {
   PUBLIC_DOMAIN,
   SUBSCRIPTION_RELAYS,
 } from "./env.js";
-import pool, { getUserBlossomServers, getUserOutboxes } from "./nostr.js";
-import logger from "./logger.js";
+import { getNsiteBlob } from "./events.js";
 import { watchInvalidation } from "./invalidation.js";
-import { NSITE_ROOT_SITE_KIND, NSITE_MANIFEST_KIND, NSITE_FILE_KIND } from "./const.js";
+import pool, { getUserBlossomServers, getUserOutboxes } from "./nostr.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -41,6 +41,25 @@ app.use(morgan(":method :host:url :status :response-time ms - :res[content-lengt
 
 // add range request support
 app.use(range);
+
+// add compression support
+app.use(
+  compress({
+    filter(contentType) {
+      // Don't compress if it's already compressed
+      if (/gzip|deflate|br|compress/.test(contentType)) {
+        return false;
+      }
+      // Compress text-based content types
+      // Binary files (images, videos, etc.) won't match and won't be compressed
+      // Range requests for binary files are safe since they won't be compressed
+      return /text|javascript|json|xml|svg|css|html|application\/json|application\/javascript|application\/xml/.test(
+        contentType,
+      );
+    },
+    threshold: 1024, // Only compress if response is > 1KB
+  }),
+);
 
 // set CORS headers
 app.use(
@@ -138,6 +157,17 @@ app.use(async (ctx, next) => {
     return;
   }
 
+  // Collect all known blossom servers for BUD-10 hints (xs parameter)
+  // This includes all servers we know about, even if not in the priority list
+  const allKnownServers: string[] = [];
+  if (event.servers && event.servers.length > 0) {
+    allKnownServers.push(...event.servers);
+  }
+  allKnownServers.push(...userServers);
+  allKnownServers.push(...BLOSSOM_SERVERS);
+  // Remove duplicates
+  const uniqueServers = Array.from(new Set(allKnownServers));
+
   try {
     // Prepare headers for range requests
     const requestHeaders: Record<string, string> = {};
@@ -145,7 +175,11 @@ app.use(async (ctx, next) => {
       requestHeaders.range = ctx.headers.range;
     }
 
-    const res = await streamBlob(event.sha256, servers, requestHeaders);
+    const res = await streamBlob(event.sha256, servers, requestHeaders, {
+      pubkey,
+      blossomProxy: BLOSSOM_PROXY,
+      allServers: uniqueServers,
+    });
     if (!res) {
       ctx.status = 502;
       ctx.body = `Bad Gateway: Unable to retrieve the requested file from storage servers.`;
