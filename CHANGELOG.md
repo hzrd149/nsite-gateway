@@ -1,5 +1,11 @@
 # nsite-gateway
 
+## 1.4.1
+
+### Patch Changes
+
+- d18cd81: Fix checking duplicate blossom servers for blobs
+
 ## 1.4.0
 
 ### Minor Changes
