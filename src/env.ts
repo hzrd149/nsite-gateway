@@ -14,7 +14,11 @@ const LOOKUP_RELAYS = process.env.LOOKUP_RELAYS?.split(",").map((u) => u.trim())
 
 // Relays to cache events and blobs on
 const LOCAL_CACHE_RELAY = "ws://localhost:4869";
-const CACHE_RELAYS = process.env.CACHE_RELAYS?.split(",").map((u) => u.trim()) || (await fetch('http://localhost:4869', { method: "HEAD", signal: AbortSignal.timeout(500) }).catch(() => null))?.ok ? [LOCAL_CACHE_RELAY] : undefined;
+const CACHE_RELAYS =
+  process.env.CACHE_RELAYS?.split(",").map((u) => u.trim()) ||
+  (await fetch("http://localhost:4869", { method: "HEAD", signal: AbortSignal.timeout(500) }).catch(() => null))?.ok
+    ? [LOCAL_CACHE_RELAY]
+    : undefined;
 
 // Relays to subscribe to for new nsite events
 const SUBSCRIPTION_RELAYS = process.env.SUBSCRIPTION_RELAYS?.split(",").map((u) => u.trim()) ?? [
@@ -27,7 +31,11 @@ const BLOSSOM_SERVERS = process.env.BLOSSOM_SERVERS?.split(",").map((u) => u.tri
 
 // Blossom proxy server to check first for blobs
 const LOCAL_BLOSSOM_PROXY = "http://localhost:24242";
-const BLOSSOM_PROXY = process.env.BLOSSOM_PROXY?.trim() || (await fetch(LOCAL_BLOSSOM_PROXY, { method: "HEAD", signal: AbortSignal.timeout(500) }).catch(() => null))?.ok ? LOCAL_BLOSSOM_PROXY : undefined;
+const BLOSSOM_PROXY =
+  process.env.BLOSSOM_PROXY?.trim() ||
+  ((await fetch(LOCAL_BLOSSOM_PROXY, { method: "HEAD", signal: AbortSignal.timeout(500) }).catch(() => null))?.ok
+    ? LOCAL_BLOSSOM_PROXY
+    : undefined);
 
 // Maximum file size to serve
 const MAX_FILE_SIZE = process.env.MAX_FILE_SIZE ? xbytes.parseSize(process.env.MAX_FILE_SIZE) : Infinity;
