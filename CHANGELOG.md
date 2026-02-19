@@ -1,5 +1,11 @@
 # nsite-gateway
 
+## 1.4.2
+
+### Patch Changes
+
+- 15a9baa: Fix BLOSSOM_PROXY and CACHE_RELAYS variables being ignored
+
 ## 1.4.1
 
 ### Patch Changes
