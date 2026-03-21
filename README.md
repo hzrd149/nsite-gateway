@@ -18,18 +18,36 @@ cp .env.example .env
 deno task start
 ```
 
+The Deno tasks already include the flags required for optional local Deno KV
+use.
+
 For local development with file watching:
 
 ```sh
 deno task dev
 ```
 
+## Cache backends
+
+The gateway defaults to a bounded in-memory metadata cache.
+
+To enable persistent local caching with Deno KV, set:
+
+```sh
+CACHE_BACKEND="kv"
+KV_PATH="./data/cache.kv"
+```
+
+If `KV_PATH` is omitted, Deno will use its default local KV location.
+
+`CACHE_MAX_ENTRIES` only applies to the in-memory cache backend.
+
 ## Running directly from JSR
 
 You can run the published package without cloning this repository:
 
 ```sh
-deno run --env-file=.env --allow-env --allow-net --allow-read jsr:@hzrd149/nsite-gateway
+deno run --unstable-kv --env-file=.env --allow-env --allow-net --allow-read --allow-write jsr:@hzrd149/nsite-gateway
 ```
 
 ## Running with docker-compose
@@ -39,6 +57,9 @@ git clone https://github.com/hzrd149/nsite-gateway.git
 cd nsite-gateway
 docker compose up
 ```
+
+The included `docker-compose.yml` enables persistent Deno KV caching with a
+local volume mounted at `/cache`.
 
 Once the service is running you can access the gateway at
 `http://localhost:3000`
@@ -52,52 +73,13 @@ locally
 docker run --rm -it --name nsite -p 3000:3000 ghcr.io/hzrd149/nsite-gateway
 ```
 
-## Tor setup
+## Onion header
 
-First you need to install tor (`sudo apt install tor` on debian systems) or
-[Documentation](https://community.torproject.org/onion-services/setup/install/)
-
-Then able the tor service
+If you operate an onion mirror separately, set `ONION_HOST` and the gateway will
+return an `Onion-Location` header in responses.
 
 ```sh
-sudo systemctl enable tor
-sudo systemctl start tor
-```
-
-### Setup hidden service
-
-Modify the torrc file to enable `HiddenServiceDir` and `HiddenServicePort`
-
-```
-HiddenServiceDir /var/lib/tor/hidden_service/
-HiddenServicePort 80 127.0.0.1:8080
-```
-
-Then restart tor
-
-```sh
-sudo systemctl restart tor
-```
-
-Next get the onion address using `cat /var/lib/tor/hidden_service/hostname` and
-set the `ONION_HOST` variable in the `.env` file
-
-```sh
-# don't forget to start with http://
-ONION_HOST="http://q457mvdt5smqj726m4lsqxxdyx7r3v7gufzt46zbkop6mkghpnr7z3qd.onion"
-```
-
-### Connecting to Tor and I2P relays and blossom servers
-
-Install Tor
-([Documentation](https://community.torproject.org/onion-services/setup/install/))
-and optionally I2Pd
-([Documentation](https://i2pd.readthedocs.io/en/latest/user-guide/install/)) and
-then add the `TOR_PROXY` and `I2P_PROXY` variables to the `.env` file
-
-```sh
-TOR_PROXY=127.0.0.1:9050
-I2P_PROXY=127.0.0.1:4447
+ONION_HOST="http://examplehiddenservice.onion"
 ```
 
 ### Blossom Proxy

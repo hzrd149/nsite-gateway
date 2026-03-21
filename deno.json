@@ -3,12 +3,12 @@
   "version": "0.3.0",
   "exports": "./main.ts",
   "compilerOptions": {
-    "lib": ["dom", "dom.iterable", "esnext", "deno.ns"]
+    "lib": ["dom", "dom.iterable", "esnext", "deno.ns", "deno.unstable"]
   },
   "nodeModulesDir": "auto",
   "tasks": {
-    "dev": "deno run --env-file=.env --watch --allow-env --allow-net --allow-read main.ts",
-    "start": "deno run --env-file=.env --allow-env --allow-net --allow-read main.ts",
+    "dev": "deno run --unstable-kv --env-file=.env --watch --allow-env --allow-net --allow-read --allow-write main.ts",
+    "start": "deno run --unstable-kv --env-file=.env --allow-env --allow-net --allow-read --allow-write main.ts",
     "check": "deno check main.ts",
     "fmt": "deno fmt"
   },
@@ -16,9 +16,9 @@
     "@hono/hono": "jsr:@hono/hono@^4.12.7",
     "@std/media-types": "jsr:@std/media-types@^1.1.0",
     "@std/path": "jsr:@std/path@^1.1.4",
-    "applesauce-core": "npm:applesauce-core@^4.4.2",
-    "applesauce-loaders": "npm:applesauce-loaders@^4.2.0",
-    "applesauce-relay": "npm:applesauce-relay@^4.4.2",
+    "applesauce-core": "npm:applesauce-core@^5",
+    "applesauce-loaders": "npm:applesauce-loaders@^5",
+    "applesauce-relay": "npm:applesauce-relay@^5",
     "debug": "npm:debug@^4.4.3",
     "nostr-tools": "npm:nostr-tools@^2.19.4",
     "rxjs": "npm:rxjs@^7.8.2",

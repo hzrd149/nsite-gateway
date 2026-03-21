@@ -1,11 +1,4 @@
 services:
-  redis:
-    image: redis:alpine
-    restart: unless-stopped
-    command: redis-server --save 60 1 --loglevel warning
-    volumes:
-      - redis-data:/data
-
   nsite:
     build: .
     image: ghcr.io/hzrd149/nsite-gateway:master
@@ -13,10 +6,11 @@ services:
     environment:
       LOOKUP_RELAYS: wss://user.kindpag.es,wss://purplepag.es
       SUBSCRIPTION_RELAYS: wss://nostrue.com/,wss://nos.lol/,wss://relay.damus.io/,wss://purplerelay.com/
-      CACHE_PATH: redis://redis:6379
+      CACHE_BACKEND: kv
+      KV_PATH: /cache/nsite-gateway.kv
       BLOSSOM_PROXY: http://blossom-cache:24242
-    depends_on:
-      - redis
+    volumes:
+      - nsite-cache:/cache
 
   caddy:
     image: caddy:alpine
@@ -38,7 +32,7 @@ services:
       - blossom-cache:/cache
 
 volumes:
-  redis-data:
+  nsite-cache:
   caddy_data:
   caddy_config:
   blossom-cache:

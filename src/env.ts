@@ -58,11 +58,13 @@ const MAX_BLOSSOM_SERVERS = Deno.env.get("MAX_BLOSSOM_SERVERS")
   ? parseInt(Deno.env.get("MAX_BLOSSOM_SERVERS")!, 10)
   : 8;
 
+const CACHE_BACKEND = Deno.env.get("CACHE_BACKEND") === "kv"
+  ? "kv"
+  : "in-memory";
 const CACHE_MAX_ENTRIES = Deno.env.get("CACHE_MAX_ENTRIES")
   ? parseInt(Deno.env.get("CACHE_MAX_ENTRIES")!, 10)
   : 10_000;
-
-const CACHE_PATH = Deno.env.get("CACHE_PATH");
+const KV_PATH = Deno.env.get("KV_PATH") || undefined;
 const CACHE_TIME = Deno.env.get("CACHE_TIME")
   ? parseInt(Deno.env.get("CACHE_TIME")!, 10)
   : 60 * 60;
@@ -81,11 +83,12 @@ const ONION_HOST = Deno.env.get("ONION_HOST") || undefined;
 export {
   BLOSSOM_PROXY,
   BLOSSOM_SERVERS,
+  CACHE_BACKEND,
   CACHE_MAX_ENTRIES,
-  CACHE_PATH,
   CACHE_RELAYS,
   CACHE_TIME,
   HOST,
+  KV_PATH,
   LOOKUP_RELAYS,
   MAX_BLOSSOM_SERVERS,
   MAX_FILE_SIZE,

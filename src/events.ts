@@ -1,7 +1,7 @@
 import { extname, join } from "@std/path/posix";
 import type { NostrEvent } from "nostr-tools";
-import { pathBlobs, siteManifests } from "./cache.ts";
-import { loadEvents, loadManifest } from "./nostr.ts";
+import { manifestPaths, pathBlobs, siteManifests } from "./cache.ts";
+import { loadManifest } from "./nostr.ts";
 import type { RequestLog } from "./request-log.ts";
 import { formatAgeFromUnix, shortId } from "./request-log.ts";
 
@@ -24,9 +24,21 @@ export type ParsedManifest = {
 
 export type NsiteBlobResult = ParsedEvent & {
   servers?: string[];
-  source: "manifest" | "legacy";
+  source: "manifest";
   manifestId?: string;
 };
+
+export type NsiteLookupResult =
+  | {
+    kind: "hit";
+    event: NsiteBlobResult;
+  }
+  | {
+    kind: "manifest-miss";
+  }
+  | {
+    kind: "miss";
+  };
 
 function addManifestLogFields(requestLog: RequestLog | undefined, event: {
   id?: string;
@@ -45,20 +57,25 @@ export function getSearchPaths(path: string) {
   return paths.filter(Boolean);
 }
 
-export function parseNsiteEvent(
-  event: { pubkey: string; tags: string[][]; created_at: number },
+export function getPathBlobCacheKey(
+  pubkey: string,
+  identifier: string,
+  path: string,
 ) {
-  const path = event.tags.find((t) => t[0] === "d" && t[1])?.[1];
-  const sha256 = event.tags.find((t) => t[0] === "x" && t[1])?.[1];
+  return `${pubkey}:${identifier}:${path}`;
+}
 
-  if (path && sha256) {
-    return {
-      pubkey: event.pubkey,
-      path: join("/", path),
-      sha256,
-      created_at: event.created_at,
-    };
+function getManifestLookupPaths(path: string) {
+  const paths = new Set([path]);
+  if (path === "/index.html") paths.add("/");
+  else if (path.endsWith("/index.html")) {
+    const directory = path.slice(0, -"/index.html".length);
+    if (directory) {
+      paths.add(directory);
+      paths.add(`${directory}/`);
+    }
   }
+  return [...paths];
 }
 
 export function parseManifestEvent(
@@ -96,66 +113,95 @@ export function parseManifestEvent(
   };
 }
 
+export async function cacheManifestEvent(
+  manifest: NostrEvent,
+): Promise<ParsedManifest | undefined> {
+  const parsedManifest = parseManifestEvent(manifest);
+  if (!parsedManifest) return undefined;
+
+  const siteKey = `${parsedManifest.pubkey}:${parsedManifest.identifier}`;
+  const previousPaths = await manifestPaths.get(siteKey) || [];
+  for (const path of previousPaths) {
+    pathBlobs.delete(
+      getPathBlobCacheKey(
+        parsedManifest.pubkey,
+        parsedManifest.identifier,
+        path,
+      ),
+    );
+  }
+
+  const cachedPaths = new Set<string>();
+  const servers = parsedManifest.servers.length > 0
+    ? parsedManifest.servers
+    : undefined;
+  const writes: Promise<void>[] = [siteManifests.set(siteKey, manifest)];
+
+  for (const [path, sha256] of parsedManifest.paths) {
+    const result = {
+      pubkey: parsedManifest.pubkey,
+      path,
+      sha256,
+      created_at: parsedManifest.created_at,
+      source: "manifest" as const,
+      manifestId: manifest.id,
+      servers,
+    };
+
+    for (const lookupPath of getManifestLookupPaths(path)) {
+      cachedPaths.add(lookupPath);
+      writes.push(
+        pathBlobs.set(
+          getPathBlobCacheKey(
+            parsedManifest.pubkey,
+            parsedManifest.identifier,
+            lookupPath,
+          ),
+          result,
+        ),
+      );
+    }
+  }
+
+  writes.push(manifestPaths.set(siteKey, [...cachedPaths]));
+  await Promise.all(writes);
+  return parsedManifest;
+}
+
 export async function getNsiteBlob(
   pubkey: string,
   path: string,
   relays: string[],
   identifier = "",
   requestLog?: RequestLog,
-): Promise<NsiteBlobResult | undefined> {
-  const key = `${pubkey}:${identifier}:${path}`;
+): Promise<NsiteLookupResult> {
+  const key = getPathBlobCacheKey(pubkey, identifier, path);
   const cached = await pathBlobs.get(key);
-  if (cached) {
-    if (cached.source === "manifest") {
-      addManifestLogFields(requestLog, {
-        id: cached.manifestId,
-        created_at: cached.created_at,
-      });
-    }
-    return { ...cached, source: cached.source || "legacy" };
+  if (cached?.manifestId) {
+    addManifestLogFields(requestLog, {
+      id: cached.manifestId,
+      created_at: cached.created_at,
+    });
+    return {
+      kind: "hit",
+      event: { ...cached, source: "manifest" },
+    };
   }
 
   const manifest = await loadManifest(pubkey, identifier, relays);
   if (manifest) {
-    const parsedManifest = parseManifestEvent(manifest);
+    const parsedManifest = await cacheManifestEvent(manifest);
     if (parsedManifest) {
-      const paths = getSearchPaths(path).filter((entry) => entry !== "/");
-      for (const searchPath of paths) {
-        const sha256 = parsedManifest.paths.get(searchPath);
-        if (!sha256) continue;
-
-        const result = {
-          pubkey,
-          path: searchPath,
-          sha256,
-          created_at: parsedManifest.created_at,
-          source: "manifest" as const,
-          manifestId: manifest.id,
-          servers: parsedManifest.servers.length > 0
-            ? parsedManifest.servers
-            : undefined,
-        };
+      const refreshed = await pathBlobs.get(key);
+      if (refreshed?.manifestId) {
         addManifestLogFields(requestLog, manifest);
-        await pathBlobs.set(key, result);
-        return result;
+        return { kind: "hit", event: { ...refreshed, source: "manifest" } };
       }
+
+      requestLog?.addFields({ src: "manifest" });
+      return { kind: "manifest-miss" };
     }
   }
 
-  requestLog?.addFields({ src: "legacy" });
-
-  const allEvents = await loadEvents(pubkey, relays);
-  const paths = getSearchPaths(path).filter((entry) => entry !== "/");
-  const matchingEvents = allEvents.filter((event) =>
-    paths.includes(event.path)
-  );
-  const options = matchingEvents.sort((a, b) =>
-    paths.indexOf(a.path) - paths.indexOf(b.path)
-  );
-  if (options.length > 0) {
-    const result = { ...options[0], source: "legacy" as const };
-    await pathBlobs.set(key, result);
-    return result;
-  }
-  return undefined;
+  return { kind: "miss" };
 }

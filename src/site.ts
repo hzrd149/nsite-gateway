@@ -13,11 +13,12 @@ import {
   SUBSCRIPTION_RELAYS,
 } from "./env.ts";
 import { getNsiteBlob } from "./events.ts";
-import { formatNsiteSubdomain } from "./nsite-host.ts";
 import { getUserBlossomServers, getUserOutboxes } from "./nostr.ts";
+import { formatNsiteSubdomain } from "./nsite-host.ts";
 import type { RequestLog } from "./request-log.ts";
 import { shortId } from "./request-log.ts";
 import { serveStaticFile } from "./static.ts";
+import { relaySet } from "applesauce-core/helpers";
 
 type SiteResult =
   | {
@@ -103,31 +104,45 @@ export async function handleSiteRequest(
     ...(identifier ? { identifier } : {}),
   });
 
-  const relays = (await getUserOutboxes(pubkey)) || [];
-  relays.push(...SUBSCRIPTION_RELAYS);
+  const relays = relaySet(await getUserOutboxes(pubkey), SUBSCRIPTION_RELAYS) ||
+    [];
   if (relays.length === 0) {
     requestLog?.setOutcome("site-no-relays");
     return { response: new Response("No relays found", { status: 502 }) };
   }
 
-  const [userServers, event] = await Promise.all([
+  const [userServers, lookup] = await Promise.all([
     getUserBlossomServers(pubkey, relays).then((servers) => servers || []),
-    getNsiteBlob(pubkey, url.pathname, relays, identifier, requestLog).then(
-      (result) => {
-        if (result) return result;
-        return getNsiteBlob(
-          pubkey!,
-          "/404.html",
-          relays,
-          identifier,
-          requestLog,
-        );
-      },
-    ),
+    getNsiteBlob(pubkey, url.pathname, relays, identifier, requestLog),
   ]);
 
+  let event;
+  let serveNotFound = false;
+
+  if (lookup.kind === "hit") {
+    event = lookup.event;
+  } else {
+    const notFoundLookup = await getNsiteBlob(
+      pubkey,
+      "/404.html",
+      relays,
+      identifier,
+      requestLog,
+    );
+
+    if (notFoundLookup.kind === "hit") {
+      event = notFoundLookup.event;
+      serveNotFound = true;
+    } else {
+      if (lookup.kind === "manifest-miss") {
+        requestLog?.addFields({ src: "manifest" });
+      }
+      requestLog?.setOutcome("site-404");
+      return { response: await notFoundPage(url.pathname) };
+    }
+  }
+
   if (!event) {
-    if (fallthrough) return { fallthrough: true };
     requestLog?.setOutcome("site-404");
     return { response: await notFoundPage(url.pathname) };
   }
@@ -206,9 +221,13 @@ export async function handleSiteRequest(
   );
   appendOnionLocation(headers, pubkey, identifier);
 
-  requestLog?.setOutcome("site-hit", { tried: servers.length });
+  requestLog?.setOutcome(serveNotFound ? "site-404" : "site-hit", {
+    tried: servers.length,
+  });
 
-  const status = upstream.status === 206
+  const status = serveNotFound
+    ? 404
+    : upstream.status === 206
     ? 206
     : upstream.ok
     ? 200
