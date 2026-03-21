@@ -15,6 +15,8 @@ import {
 import { getNsiteBlob } from "./events.ts";
 import { formatNsiteSubdomain } from "./nsite-host.ts";
 import { getUserBlossomServers, getUserOutboxes } from "./nostr.ts";
+import type { RequestLog } from "./request-log.ts";
+import { shortId } from "./request-log.ts";
 import { serveStaticFile } from "./static.ts";
 
 type SiteResult =
@@ -63,7 +65,10 @@ async function notFoundPage(pathname: string): Promise<Response> {
   );
 }
 
-export async function handleSiteRequest(request: Request): Promise<SiteResult> {
+export async function handleSiteRequest(
+  request: Request,
+  requestLog?: RequestLog,
+): Promise<SiteResult> {
   const url = new URL(request.url);
   const hostname = url.hostname;
   const method = request.method === "HEAD" ? "HEAD" : "GET";
@@ -78,7 +83,10 @@ export async function handleSiteRequest(request: Request): Promise<SiteResult> {
     (!PUBLIC_DOMAIN || hostname === PUBLIC_DOMAIN)
   ) {
     pubkey = getHomepagePubkey();
-    if (pubkey) fallthrough = true;
+    if (pubkey) {
+      fallthrough = true;
+      requestLog?.addFields({ route: "homepage" });
+    }
   } else if (resolved) {
     pubkey = resolved.pubkey;
     identifier = resolved.identifier;
@@ -86,27 +94,48 @@ export async function handleSiteRequest(request: Request): Promise<SiteResult> {
 
   if (!pubkey) {
     if (fallthrough) return { fallthrough: true };
+    requestLog?.setOutcome("site-404");
     return { response: await notFoundPage(url.pathname) };
   }
+
+  requestLog?.addFields({
+    pubkey: shortId(pubkey, 12),
+    ...(identifier ? { identifier } : {}),
+  });
 
   const relays = (await getUserOutboxes(pubkey)) || [];
   relays.push(...SUBSCRIPTION_RELAYS);
   if (relays.length === 0) {
+    requestLog?.setOutcome("site-no-relays");
     return { response: new Response("No relays found", { status: 502 }) };
   }
 
   const [userServers, event] = await Promise.all([
     getUserBlossomServers(pubkey, relays).then((servers) => servers || []),
-    getNsiteBlob(pubkey, url.pathname, relays, identifier).then((result) => {
-      if (result) return result;
-      return getNsiteBlob(pubkey!, "/404.html", relays, identifier);
-    }),
+    getNsiteBlob(pubkey, url.pathname, relays, identifier, requestLog).then(
+      (result) => {
+        if (result) return result;
+        return getNsiteBlob(
+          pubkey!,
+          "/404.html",
+          relays,
+          identifier,
+          requestLog,
+        );
+      },
+    ),
   ]);
 
   if (!event) {
     if (fallthrough) return { fallthrough: true };
+    requestLog?.setOutcome("site-404");
     return { response: await notFoundPage(url.pathname) };
   }
+
+  requestLog?.addFields({
+    sha: shortId(event.sha256, 12),
+    src: event.source,
+  });
 
   const servers: string[] = [];
   const seen = new Set<string>();
@@ -124,6 +153,7 @@ export async function handleSiteRequest(request: Request): Promise<SiteResult> {
     }
   }
   if (servers.length === 0) {
+    requestLog?.setOutcome("site-no-servers");
     return {
       response: new Response("Not Found: No blossom servers available", {
         status: 404,
@@ -140,9 +170,11 @@ export async function handleSiteRequest(request: Request): Promise<SiteResult> {
     headers: requestHeaders,
     pubkey,
     blossomProxy: BLOSSOM_PROXY,
+    requestLog,
   });
 
   if (!upstream) {
+    requestLog?.setOutcome("upstream-fail", { tried: servers.length });
     return {
       response: new Response(
         "Bad Gateway: Unable to retrieve the requested file from storage servers.",
@@ -173,6 +205,8 @@ export async function handleSiteRequest(request: Request): Promise<SiteResult> {
       new Date(event.created_at * 1000).toUTCString(),
   );
   appendOnionLocation(headers, pubkey, identifier);
+
+  requestLog?.setOutcome("site-hit", { tried: servers.length });
 
   const status = upstream.status === 206
     ? 206

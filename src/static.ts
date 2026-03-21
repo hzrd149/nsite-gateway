@@ -1,5 +1,6 @@
 import { extname, join, normalize } from "@std/path";
 import { contentType } from "@std/media-types";
+import type { RequestLog } from "./request-log.ts";
 
 async function exists(path: string): Promise<boolean> {
   try {
@@ -17,7 +18,7 @@ export async function pathExists(path: string): Promise<boolean> {
 async function resolveFile(
   root: string,
   requestPath: string,
-): Promise<string | null> {
+): Promise<{ filePath: string | null; rejected: boolean }> {
   const safePath = normalize(decodeURIComponent(requestPath)).replace(
     /^([.][.][\/\\])+/,
     "",
@@ -36,11 +37,13 @@ async function resolveFile(
   try {
     resolvedCandidate = await Deno.realPath(candidate);
   } catch {
-    return null;
+    return { filePath: null, rejected: false };
   }
 
-  if (!resolvedCandidate.startsWith(resolvedRoot)) return null;
-  return resolvedCandidate;
+  if (!resolvedCandidate.startsWith(resolvedRoot)) {
+    return { filePath: null, rejected: true };
+  }
+  return { filePath: resolvedCandidate, rejected: false };
 }
 
 export async function serveStaticFile(
@@ -48,8 +51,12 @@ export async function serveStaticFile(
   requestPath: string,
   method = "GET",
   status = 200,
+  requestLog?: RequestLog,
 ): Promise<Response | null> {
-  const filePath = await resolveFile(root, requestPath);
+  const { filePath, rejected } = await resolveFile(root, requestPath);
+  if (rejected) {
+    requestLog?.error("static path rejected", { path: requestPath });
+  }
   if (!filePath || !(await exists(filePath))) return null;
 
   const file = await Deno.open(filePath, { read: true });

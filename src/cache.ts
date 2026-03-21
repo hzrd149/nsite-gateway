@@ -2,6 +2,12 @@ import type { NostrEvent } from "nostr-tools";
 import { CACHE_MAX_ENTRIES, CACHE_TIME } from "./env.ts";
 import type { ParsedEvent } from "./events.ts";
 
+type CachedPathBlob = ParsedEvent & {
+  servers?: string[];
+  source?: "manifest" | "legacy";
+  manifestId?: string;
+};
+
 class TTLCache<T> {
   #ttlMs: number;
   #maxEntries: number;
@@ -62,7 +68,7 @@ export const pubkeyRelays = new TTLCache<string[] | undefined>(
   ttlMs,
   CACHE_MAX_ENTRIES,
 );
-export const pathBlobs = new TTLCache<ParsedEvent | undefined>(
+export const pathBlobs = new TTLCache<CachedPathBlob | undefined>(
   ttlMs,
   CACHE_MAX_ENTRIES,
 );

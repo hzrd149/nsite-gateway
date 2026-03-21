@@ -2,6 +2,8 @@ import { extname, join } from "@std/path/posix";
 import type { NostrEvent } from "nostr-tools";
 import { pathBlobs, siteManifests } from "./cache.ts";
 import { loadEvents, loadManifest } from "./nostr.ts";
+import type { RequestLog } from "./request-log.ts";
+import { formatAgeFromUnix, shortId } from "./request-log.ts";
 
 export type ParsedEvent = {
   pubkey: string;
@@ -19,6 +21,23 @@ export type ParsedManifest = {
   description?: string;
   created_at: number;
 };
+
+export type NsiteBlobResult = ParsedEvent & {
+  servers?: string[];
+  source: "manifest" | "legacy";
+  manifestId?: string;
+};
+
+function addManifestLogFields(requestLog: RequestLog | undefined, event: {
+  id?: string;
+  created_at: number;
+}) {
+  if (!requestLog || !event.id) return;
+  requestLog.addFields({
+    manifest: shortId(event.id, 12),
+    manifestAge: formatAgeFromUnix(event.created_at),
+  });
+}
 
 export function getSearchPaths(path: string) {
   const paths = [path];
@@ -82,10 +101,19 @@ export async function getNsiteBlob(
   path: string,
   relays: string[],
   identifier = "",
-): Promise<(ParsedEvent & { servers?: string[] }) | undefined> {
+  requestLog?: RequestLog,
+): Promise<NsiteBlobResult | undefined> {
   const key = `${pubkey}:${identifier}:${path}`;
   const cached = await pathBlobs.get(key);
-  if (cached) return cached;
+  if (cached) {
+    if (cached.source === "manifest") {
+      addManifestLogFields(requestLog, {
+        id: cached.manifestId,
+        created_at: cached.created_at,
+      });
+    }
+    return { ...cached, source: cached.source || "legacy" };
+  }
 
   const manifest = await loadManifest(pubkey, identifier, relays);
   if (manifest) {
@@ -101,15 +129,20 @@ export async function getNsiteBlob(
           path: searchPath,
           sha256,
           created_at: parsedManifest.created_at,
+          source: "manifest" as const,
+          manifestId: manifest.id,
           servers: parsedManifest.servers.length > 0
             ? parsedManifest.servers
             : undefined,
         };
+        addManifestLogFields(requestLog, manifest);
         await pathBlobs.set(key, result);
         return result;
       }
     }
   }
+
+  requestLog?.addFields({ src: "legacy" });
 
   const allEvents = await loadEvents(pubkey, relays);
   const paths = getSearchPaths(path).filter((entry) => entry !== "/");
@@ -119,6 +152,10 @@ export async function getNsiteBlob(
   const options = matchingEvents.sort((a, b) =>
     paths.indexOf(a.path) - paths.indexOf(b.path)
   );
-  if (options.length > 0) await pathBlobs.set(key, options[0]);
-  return options[0];
+  if (options.length > 0) {
+    const result = { ...options[0], source: "legacy" as const };
+    await pathBlobs.set(key, result);
+    return result;
+  }
+  return undefined;
 }

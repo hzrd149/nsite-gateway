@@ -1,6 +1,8 @@
 import { blobURLs } from "./cache.ts";
 import { MAX_BLOSSOM_SERVERS, MAX_FILE_SIZE } from "./env.ts";
 import logger from "./logger.ts";
+import type { RequestLog } from "./request-log.ts";
+import { shortId } from "./request-log.ts";
 
 const log = logger.extend("blossom");
 
@@ -97,16 +99,20 @@ export async function streamBlob(
     headers?: HeadersInit;
     pubkey?: string;
     blossomProxy?: string;
+    requestLog?: RequestLog;
   },
 ): Promise<Response | undefined> {
   if (servers.length === 0) return undefined;
 
   const requestLog = log.extend(sha256.slice(0, 6));
+  const requestState = init?.requestLog;
   const urls = await findBlobURLs(sha256, servers, {
     pubkey: init?.pubkey,
     blossomProxy: init?.blossomProxy,
   });
   if (urls.length === 0) return undefined;
+
+  let lastFailure: string | undefined;
 
   for (const urlString of urls) {
     try {
@@ -123,6 +129,7 @@ export async function streamBlob(
       const length = response.headers.get("content-length");
       if (length && Number(length) > MAX_FILE_SIZE) {
         requestLog(`Rejected ${urlString}: file too large (${length})`);
+        lastFailure = "file-too-large";
         controller.abort();
         continue;
       }
@@ -134,6 +141,7 @@ export async function streamBlob(
           requestLog(
             `Aborted ${urlString}: stream exceeded ${MAX_FILE_SIZE} bytes`,
           );
+          lastFailure = "stream-too-large";
           controller.abort();
         });
 
@@ -144,6 +152,7 @@ export async function streamBlob(
         });
       }
     } catch (error) {
+      lastFailure = error instanceof Error ? error.message : String(error);
       requestLog(
         `Failed ${urlString}: ${
           error instanceof Error ? error.message : String(error)
@@ -151,6 +160,12 @@ export async function streamBlob(
       );
     }
   }
+
+  requestState?.error("blossom fetch failed", {
+    reason: lastFailure || "no-upstream-response",
+    sha: shortId(sha256, 12),
+    tried: urls.length,
+  });
 
   return undefined;
 }

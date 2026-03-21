@@ -35,6 +35,15 @@ Deno.test("parses canonical named-site hostname", () => {
   });
 });
 
+Deno.test("parses canonical named-site hostname with hyphen", () => {
+  const label = formatNsiteSubdomain(PUBKEY, "my-blog");
+
+  assertEquals(parseNsiteHostname(`${label}.example.com`), {
+    pubkey: PUBKEY,
+    identifier: "my-blog",
+  });
+});
+
 Deno.test("parses legacy named-site hostname", () => {
   assertEquals(parseNsiteHostname(`blog.${NPUB}.example.com`), {
     pubkey: PUBKEY,
@@ -42,8 +51,22 @@ Deno.test("parses legacy named-site hostname", () => {
   });
 });
 
-Deno.test("falls back to legacy format for non-canonical identifiers", () => {
-  assertEquals(formatNsiteSubdomain(PUBKEY, "my-blog"), `my-blog.${NPUB}`);
+Deno.test("formats canonical hostname for hyphenated identifiers", () => {
+  const pubkeyB36 = encodePubkeyB36(PUBKEY);
+
+  assertExists(pubkeyB36);
+  assertEquals(formatNsiteSubdomain(PUBKEY, "my-blog"), `${pubkeyB36}my-blog`);
+});
+
+Deno.test("falls back to legacy format for identifiers ending in hyphen", () => {
+  assertEquals(formatNsiteSubdomain(PUBKEY, "blog-"), `blog-.${NPUB}`);
+});
+
+Deno.test("rejects canonical named-site labels ending in hyphen", () => {
+  const pubkeyB36 = encodePubkeyB36(PUBKEY);
+
+  assertExists(pubkeyB36);
+  assertEquals(parseNsiteHostname(`${pubkeyB36}blog-.example.com`), undefined);
 });
 
 Deno.test("rejects oversized canonical named-site labels", () => {
@@ -51,7 +74,7 @@ Deno.test("rejects oversized canonical named-site labels", () => {
 
   assertExists(pubkeyB36);
   assertEquals(
-    parseNsiteHostname(`${pubkeyB36}abcdefghijkl.example.com`),
+    parseNsiteHostname(`${pubkeyB36}abcdefghijklmn.example.com`),
     undefined,
   );
 });

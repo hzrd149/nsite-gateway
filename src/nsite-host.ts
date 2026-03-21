@@ -3,7 +3,7 @@ import { nip19 } from "nostr-tools";
 const CANONICAL_PUBKEY_LENGTH = 50;
 const MAX_PUBKEY = (1n << 256n) - 1n;
 
-export const CANONICAL_SITE_IDENTIFIER = /^[a-z0-9]{1,11}$/;
+export const CANONICAL_SITE_IDENTIFIER = /^(?=.{1,13}$)[a-z0-9-]*[a-z0-9]$/;
 
 function decodeNpub(npub: string): string | undefined {
   try {
@@ -44,7 +44,9 @@ export function encodePubkeyB36(pubkey: string): string | undefined {
 }
 
 function parseCanonicalSiteLabel(label: string) {
-  if (!/^[0-9a-z]{51,61}$/.test(label)) return undefined;
+  if (!/^[0-9a-z]{50}[a-z0-9-]{1,13}$/.test(label) || label.endsWith("-")) {
+    return undefined;
+  }
 
   const pubkey = decodePubkeyB36(label.slice(0, CANONICAL_PUBKEY_LENGTH));
   const identifier = label.slice(CANONICAL_PUBKEY_LENGTH);
