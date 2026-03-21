@@ -1,11 +1,10 @@
 {
   "name": "@hzrd149/nsite-gateway",
-  "version": "0.3.0",
+  "version": "2.0.0",
   "exports": "./main.ts",
   "compilerOptions": {
     "lib": ["dom", "dom.iterable", "esnext", "deno.ns", "deno.unstable"]
   },
-  "nodeModulesDir": "auto",
   "tasks": {
     "dev": "deno run --unstable-kv --env-file=.env --watch --allow-env --allow-net --allow-read --allow-write main.ts",
     "start": "deno run --unstable-kv --env-file=.env --allow-env --allow-net --allow-read --allow-write main.ts",

@@ -135,6 +135,7 @@ export async function streamBlob(
       }
 
       if (response.status >= 200 && response.status < 300) {
+        requestState?.addFields({ server: extractDomain(urlString) });
         if (!response.body || init?.method === "HEAD") return response;
 
         const body = limitBodySize(response.body, MAX_FILE_SIZE, () => {

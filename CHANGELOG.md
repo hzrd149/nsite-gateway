@@ -1,5 +1,22 @@
 # nsite-gateway
 
+## 2.0.0
+
+### Major Changes
+
+- Rewrite the gateway to run on Deno and Hono
+- Remove support for the legacy nsite file event kind `34128`
+
+### Minor Changes
+
+- Improve nsite hostname resolution for root and named sites
+- Update Docker runtime and docs to use the Deno-native workflow
+
+### Patch Changes
+
+- Harden streaming and cache limits in the Deno server
+- Fix site manifest event loading
+
 ## 1.4.2
 
 ### Patch Changes
