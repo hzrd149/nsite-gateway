@@ -1,93 +1,41 @@
-import Keyv, { KeyvOptions } from "keyv";
-import { NostrEvent } from "nostr-tools";
-import { CACHE_PATH, CACHE_TIME } from "./env.js";
-import logger from "./logger.js";
-import { ParsedEvent } from "./events.js";
+import type { NostrEvent } from "nostr-tools";
+import { CACHE_TIME } from "./env.ts";
+import type { ParsedEvent } from "./events.ts";
 
-const log = logger.extend("cache");
+class TTLCache<T> {
+  #ttlMs: number;
+  #store = new Map<string, { value: T; expiresAt: number }>();
 
-async function createStore() {
-  if (!CACHE_PATH || CACHE_PATH === "in-memory") return undefined;
-  else if (CACHE_PATH.startsWith("redis://")) {
-    const { default: KeyvRedis } = await import("@keyv/redis");
-    log(`Using redis cache at ${CACHE_PATH}`);
-    return new KeyvRedis(CACHE_PATH);
-  } else if (CACHE_PATH.startsWith("sqlite://")) {
-    const { default: KeyvSqlite } = await import("@keyv/sqlite");
-    log(`Using sqlite cache at ${CACHE_PATH}`);
-    return new KeyvSqlite(CACHE_PATH);
+  constructor(ttlMs: number) {
+    this.#ttlMs = ttlMs;
+  }
+
+  async get(key: string): Promise<T | undefined> {
+    const entry = this.#store.get(key);
+    if (!entry) return undefined;
+    if (entry.expiresAt <= Date.now()) {
+      this.#store.delete(key);
+      return undefined;
+    }
+    return entry.value;
+  }
+
+  async set(key: string, value: T): Promise<void> {
+    this.#store.set(key, { value, expiresAt: Date.now() + this.#ttlMs });
+  }
+
+  delete(key: string): void {
+    this.#store.delete(key);
   }
 }
 
-const store = await createStore();
+const ttlMs = CACHE_TIME * 1000;
 
-store?.on("error", (err) => {
-  log("Connection Error", err);
-  process.exit(1);
-});
-
-const json: KeyvOptions = { serialize: JSON.stringify, deserialize: JSON.parse };
-const opts: KeyvOptions = store ? { store } : {};
-
-/** A cache that maps a domain to a pubkey ( domain -> pubkey ) */
-export const pubkeyDomains = new Keyv<string | undefined>({
-  ...opts,
-  ...json,
-  namespace: "domains",
-  ttl: CACHE_TIME * 1000,
-});
-
-/** A cache that maps a pubkey to a set of blossom servers ( pubkey -> servers ) */
-export const pubkeyServers = new Keyv<string[] | undefined>({
-  ...opts,
-  ...json,
-  namespace: "servers",
-  ttl: CACHE_TIME * 1000,
-});
-
-/** A cache that maps a pubkey to a set of relays ( pubkey -> relays ) */
-export const pubkeyRelays = new Keyv<string[] | undefined>({
-  ...opts,
-  ...json,
-  namespace: "relays",
-  ttl: CACHE_TIME * 1000,
-});
-
-/** A cache that maps a pubkey + identifier + path to sha256 hash of the blob ( pubkey:identifier:path -> sha256 ) */
-export const pathBlobs = new Keyv<ParsedEvent | undefined>({
-  ...opts,
-  ...json,
-  namespace: "paths",
-  ttl: CACHE_TIME * 1000,
-});
-
-/** A cache that maps a pubkey + identifier to their site manifest event ( pubkey:identifier -> manifest ) */
-export const siteManifests = new Keyv<NostrEvent | undefined>({
-  ...opts,
-  ...json,
-  namespace: "manifests",
-  ttl: CACHE_TIME * 1000,
-});
-
-/** A cache that maps a sha256 hash to a set of URLs that had the blob ( sha256 -> URLs ) */
-export const blobURLs = new Keyv<string[] | undefined>({
-  ...opts,
-  ...json,
-  namespace: "blobs",
-  ttl: CACHE_TIME * 1000,
-});
-
-/** A cache that maps a pubkey to all their nsite events ( pubkey -> events[] ) */
-export const pubkeyEvents = new Keyv<NostrEvent[] | undefined>({
-  ...opts,
-  ...json,
-  namespace: "nsite-events",
-  ttl: CACHE_TIME * 1000,
-});
-
-/** A cache that stores the last sync timestamp for each pubkey ( pubkey -> timestamp ) */
-export const pubkeyLastSync = new Keyv<number | undefined>({
-  ...opts,
-  ...json,
-  namespace: "last-sync",
-});
+export const pubkeyDomains = new TTLCache<string | undefined>(ttlMs);
+export const pubkeyServers = new TTLCache<string[] | undefined>(ttlMs);
+export const pubkeyRelays = new TTLCache<string[] | undefined>(ttlMs);
+export const pathBlobs = new TTLCache<ParsedEvent | undefined>(ttlMs);
+export const siteManifests = new TTLCache<NostrEvent | undefined>(ttlMs);
+export const blobURLs = new TTLCache<string[] | undefined>(ttlMs);
+export const pubkeyEvents = new TTLCache<NostrEvent[] | undefined>(ttlMs);
+export const pubkeyLastSync = new TTLCache<number | undefined>(ttlMs);

@@ -1,60 +1,42 @@
-import dns from "node:dns";
 import { nip05, nip19 } from "nostr-tools";
-import { pubkeyDomains as pubkeyDomains } from "./cache.js";
-import logger from "./logger.js";
-import { NIP05_NAME_DOMAINS } from "./env.js";
+import { pubkeyDomains } from "./cache.ts";
+import logger from "./logger.ts";
+import { NIP05_NAME_DOMAINS } from "./env.ts";
 
-export function getCnameRecords(hostname: string): Promise<string[]> {
-  return new Promise<string[]>((res, rej) => {
-    dns.resolveCname(hostname, (err, records) => {
-      if (err) rej(err);
-      else res(records);
-    });
-  });
+const log = logger.extend("dns");
+
+async function getCnameRecords(hostname: string): Promise<string[]> {
+  try {
+    return await Deno.resolveDns(hostname, "CNAME");
+  } catch {
+    return [];
+  }
 }
-export function getTxtRecords(hostname: string): Promise<string[][]> {
-  return new Promise<string[][]>((res, rej) => {
-    dns.resolveTxt(hostname, (err, records) => {
-      if (err) rej(err);
-      else res(records);
-    });
-  });
+
+async function getTxtRecords(hostname: string): Promise<string[][]> {
+  try {
+    return await Deno.resolveDns(hostname, "TXT");
+  } catch {
+    return [];
+  }
 }
 
 function extractPubkeyFromHostname(hostname: string): string | undefined {
   const parts = hostname.split(".");
-
-  // Check if any part is an npub
   for (const part of parts) {
-    if (part.startsWith("npub")) {
-      const parsed = nip19.decode(part);
-      if (parsed.type !== "npub") throw new Error("Expected npub");
-      return parsed.data;
-    }
+    if (!part.startsWith("npub")) continue;
+    const parsed = nip19.decode(part);
+    if (parsed.type !== "npub") throw new Error("Expected npub");
+    return parsed.data;
   }
 }
 
-/**
- * Extracts the identifier from a hostname
- * Format: [identifier].<npub>.nsite-host.com
- * Returns empty string "" for root site (no identifier subdomain)
- */
 function extractIdentifierFromHostname(hostname: string): string {
   const parts = hostname.split(".");
-
-  // Find the npub part
   const npubIndex = parts.findIndex((part) => part.startsWith("npub"));
-
-  // If npub is found and there's a part before it, that's the identifier
-  if (npubIndex > 0) {
-    return parts[0];
-  }
-
-  // Root site (no identifier)
+  if (npubIndex > 0) return parts[0];
   return "";
 }
-
-const log = logger.extend("DNS");
 
 export async function resolvePubkeyFromHostname(
   hostname: string,
@@ -63,55 +45,49 @@ export async function resolvePubkeyFromHostname(
 
   const cached = await pubkeyDomains.get(hostname);
   if (cached) {
-    const identifier = extractIdentifierFromHostname(hostname);
-    return { pubkey: cached, identifier };
+    return {
+      pubkey: cached,
+      identifier: extractIdentifierFromHostname(hostname),
+    };
   }
 
-  // check if domain contains an npub
   let pubkey = extractPubkeyFromHostname(hostname);
 
   if (!pubkey) {
-    // try to get npub from CNAME
-    try {
-      const cnameRecords = await getCnameRecords(hostname);
-      for (const cname of cnameRecords) {
-        const p = extractPubkeyFromHostname(cname);
-        if (p) {
-          pubkey = p;
-          break;
-        }
+    for (const cname of await getCnameRecords(hostname)) {
+      const candidate = extractPubkeyFromHostname(cname);
+      if (candidate) {
+        pubkey = candidate;
+        break;
       }
-    } catch (error) {}
+    }
   }
 
   if (!pubkey) {
-    // Try to get npub from TXT records
-    try {
-      const txtRecords = await getTxtRecords(hostname);
-
-      for (const txt of txtRecords) {
-        for (const entry of txt) {
-          const p = extractPubkeyFromHostname(entry);
-          if (p) {
-            pubkey = p;
-            break;
-          }
+    for (const txt of await getTxtRecords(hostname)) {
+      for (const entry of txt) {
+        const candidate = extractPubkeyFromHostname(entry);
+        if (candidate) {
+          pubkey = candidate;
+          break;
         }
       }
-    } catch (error) {}
+      if (pubkey) break;
+    }
   }
 
-  // Try to get npub from NIP-05
-  if (!pubkey && NIP05_NAME_DOMAINS) {
+  if (!pubkey && NIP05_NAME_DOMAINS.length > 0) {
+    const [name] = hostname.split(".");
     for (const domain of NIP05_NAME_DOMAINS) {
       try {
-        const [name] = hostname.split(".");
-        const result = await nip05.queryProfile(name + "@" + domain);
+        const result = await nip05.queryProfile(`${name}@${domain}`);
         if (result) {
           pubkey = result.pubkey;
           break;
         }
-      } catch (err) {}
+      } catch {
+        continue;
+      }
     }
   }
 
