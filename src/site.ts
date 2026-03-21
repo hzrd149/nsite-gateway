@@ -7,6 +7,7 @@ import { resolvePubkeyFromHostname } from "./dns.ts";
 import {
   BLOSSOM_PROXY,
   BLOSSOM_SERVERS,
+  MAX_BLOSSOM_SERVERS,
   NSITE_HOMEPAGE,
   ONION_HOST,
   PUBLIC_DOMAIN,
@@ -14,7 +15,7 @@ import {
 } from "./env.ts";
 import { getNsiteBlob } from "./events.ts";
 import { getUserBlossomServers, getUserOutboxes } from "./nostr.ts";
-import { readTextFileIfExists } from "./static.ts";
+import { serveStaticFile } from "./static.ts";
 
 type SiteResult =
   | {
@@ -41,13 +42,13 @@ function getHomepagePubkey(): string | undefined {
 }
 
 async function notFoundPage(pathname: string): Promise<Response> {
-  const body = await readTextFileIfExists(join(Deno.cwd(), "public/404.html"));
-  if (body !== null) {
-    return new Response(body, {
-      status: 404,
-      headers: { "content-type": "text/html; charset=utf-8" },
-    });
-  }
+  const file = await serveStaticFile(
+    join(Deno.cwd(), "public"),
+    "/404.html",
+    "GET",
+    404,
+  );
+  if (file) return file;
   return new Response(
     `Not Found: The requested path "${pathname}" could not be found on this site.`,
     { status: 404 },
@@ -111,6 +112,7 @@ export async function handleSiteRequest(request: Request): Promise<SiteResult> {
     if (!seen.has(server)) {
       seen.add(server);
       servers.push(server);
+      if (servers.length >= MAX_BLOSSOM_SERVERS) break;
     }
   }
   if (servers.length === 0) {

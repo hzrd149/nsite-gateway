@@ -47,6 +47,7 @@ export async function serveStaticFile(
   root: string,
   requestPath: string,
   method = "GET",
+  status = 200,
 ): Promise<Response | null> {
   const filePath = await resolveFile(root, requestPath);
   if (!filePath || !(await exists(filePath))) return null;
@@ -62,18 +63,8 @@ export async function serveStaticFile(
 
   if (method === "HEAD") {
     file.close();
-    return new Response(null, { status: 200, headers });
+    return new Response(null, { status, headers });
   }
 
-  return new Response(file.readable, { status: 200, headers });
-}
-
-export async function readTextFileIfExists(
-  path: string,
-): Promise<string | null> {
-  try {
-    return await Deno.readTextFile(path);
-  } catch {
-    return null;
-  }
+  return new Response(file.readable, { status, headers });
 }

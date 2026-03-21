@@ -1,5 +1,5 @@
 import { Hono } from "@hono/hono";
-import { pathExists, readTextFileIfExists, serveStaticFile } from "./static.ts";
+import { pathExists, serveStaticFile } from "./static.ts";
 import { NSITE_HOMEPAGE_DIR, ONION_HOST } from "./env.ts";
 import { handleSiteRequest } from "./site.ts";
 
@@ -34,10 +34,10 @@ function corsMiddleware() {
 
 export function buildApp() {
   const app = new Hono();
-  const getStaticRoot =
-    async () => ((await pathExists(NSITE_HOMEPAGE_DIR))
-      ? NSITE_HOMEPAGE_DIR
-      : "public");
+  const staticRootPromise = pathExists(NSITE_HOMEPAGE_DIR).then((
+    exists,
+  ) => (exists ? NSITE_HOMEPAGE_DIR : "public"));
+  const getStaticRoot = async () => await staticRootPromise;
 
   app.onError(
     (error) =>
@@ -67,13 +67,13 @@ export function buildApp() {
     );
     if (response) return response;
 
-    const fallback = await readTextFileIfExists("public/404.html");
-    if (fallback) {
-      return new Response(fallback, {
-        status: 404,
-        headers: { "content-type": "text/html; charset=utf-8" },
-      });
-    }
+    const fallback = await serveStaticFile(
+      "public",
+      "/404.html",
+      c.req.method,
+      404,
+    );
+    if (fallback) return fallback;
     return new Response("Not Found", { status: 404 });
   });
 
@@ -92,13 +92,8 @@ export function buildApp() {
   });
 
   app.notFound(async () => {
-    const fallback = await readTextFileIfExists("public/404.html");
-    if (fallback) {
-      return new Response(fallback, {
-        status: 404,
-        headers: { "content-type": "text/html; charset=utf-8" },
-      });
-    }
+    const fallback = await serveStaticFile("public", "/404.html", "GET", 404);
+    if (fallback) return fallback;
     return new Response("Not Found", { status: 404 });
   });
 

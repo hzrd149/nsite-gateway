@@ -1,7 +1,7 @@
 # nsite-gateway
 
-A Typescript implementation of
-[static websites on nostr](https://github.com/nostr-protocol/nips/pull/1538)
+A Deno + Hono gateway implementation for
+[static websites on nostr](https://github.com/nostr-protocol/nips/pull/1538).
 
 ## Configuring
 
@@ -16,6 +16,20 @@ cp .env.example .env
 
 ```sh
 deno task start
+```
+
+For local development with file watching:
+
+```sh
+deno task dev
+```
+
+## Running directly from JSR
+
+You can run the published package without cloning this repository:
+
+```sh
+deno run --env-file=.env --allow-env --allow-net --allow-read jsr:@hzrd149/nsite-gateway
 ```
 
 ## Running with docker-compose

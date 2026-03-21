@@ -1,5 +1,5 @@
 import { blobURLs } from "./cache.ts";
-import { MAX_FILE_SIZE } from "./env.ts";
+import { MAX_BLOSSOM_SERVERS, MAX_FILE_SIZE } from "./env.ts";
 import logger from "./logger.ts";
 
 const log = logger.extend("blossom");
@@ -27,10 +27,12 @@ export async function findBlobURLs(
   const cached = await blobURLs.get(sha256);
   if (cached) return cached;
 
-  const requestLog = log.extend(sha256.slice(0, 6));
   const { pubkey, blossomProxy } = options || {};
 
-  let proxyUrlString: string | null = null;
+  const ordered: string[] = [];
+  const seen = new Set<string>();
+
+  let proxyUrlString: string | undefined;
   if (blossomProxy) {
     try {
       const proxyUrl = new URL(sha256, blossomProxy);
@@ -38,7 +40,7 @@ export async function findBlobURLs(
       if (queryParams) proxyUrl.search = queryParams;
       proxyUrlString = proxyUrl.toString();
     } catch (error) {
-      requestLog(
+      log.extend(sha256.slice(0, 6))(
         `Failed to build BLOSSOM_PROXY URL: ${
           error instanceof Error ? error.message : String(error)
         }`,
@@ -46,25 +48,45 @@ export async function findBlobURLs(
     }
   }
 
-  const results = await Promise.all(
-    servers.map(async (server) => {
-      const url = new URL(sha256, server);
-      try {
-        const response = await fetch(url, {
-          method: "HEAD",
-          signal: AbortSignal.timeout(10_000),
-        });
-        return response.ok ? url.toString() : null;
-      } catch {
-        return null;
-      }
-    }),
-  );
+  if (proxyUrlString) {
+    ordered.push(proxyUrlString);
+    seen.add(proxyUrlString);
+  }
 
-  const finalUrls = results.filter((url): url is string => Boolean(url));
-  const ordered = proxyUrlString ? [proxyUrlString, ...finalUrls] : finalUrls;
+  for (const server of servers) {
+    if (ordered.length >= MAX_BLOSSOM_SERVERS) break;
+    const url = new URL(sha256, server).toString();
+    if (seen.has(url)) continue;
+    seen.add(url);
+    ordered.push(url);
+  }
+
   await blobURLs.set(sha256, ordered);
   return ordered;
+}
+
+function limitBodySize(
+  body: ReadableStream<Uint8Array>,
+  maxBytes: number,
+  onLimit: () => void,
+): ReadableStream<Uint8Array> {
+  let bytes = 0;
+
+  return body.pipeThrough(
+    new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        bytes += chunk.byteLength;
+        if (bytes > maxBytes) {
+          onLimit();
+          controller.error(
+            new Error(`Blob exceeds maximum allowed size of ${maxBytes} bytes`),
+          );
+          return;
+        }
+        controller.enqueue(chunk);
+      },
+    }),
+  );
 }
 
 export async function streamBlob(
@@ -88,19 +110,39 @@ export async function streamBlob(
 
   for (const urlString of urls) {
     try {
+      const controller = new AbortController();
       const response = await fetch(urlString, {
         method: init?.method ?? "GET",
         headers: init?.headers,
-        signal: AbortSignal.timeout(10_000),
+        signal: AbortSignal.any([
+          AbortSignal.timeout(10_000),
+          controller.signal,
+        ]),
       });
 
       const length = response.headers.get("content-length");
       if (length && Number(length) > MAX_FILE_SIZE) {
         requestLog(`Rejected ${urlString}: file too large (${length})`);
+        controller.abort();
         continue;
       }
 
-      if (response.status >= 200 && response.status < 300) return response;
+      if (response.status >= 200 && response.status < 300) {
+        if (!response.body || init?.method === "HEAD") return response;
+
+        const body = limitBodySize(response.body, MAX_FILE_SIZE, () => {
+          requestLog(
+            `Aborted ${urlString}: stream exceeded ${MAX_FILE_SIZE} bytes`,
+          );
+          controller.abort();
+        });
+
+        return new Response(body, {
+          status: response.status,
+          statusText: response.statusText,
+          headers: response.headers,
+        });
+      }
     } catch (error) {
       requestLog(
         `Failed ${urlString}: ${
