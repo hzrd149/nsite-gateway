@@ -12,10 +12,10 @@ file and modifying it.
 cp .env.example .env
 ```
 
-## Running with npx
+## Running with Deno
 
 ```sh
-npx nsite-gateway
+deno task start
 ```
 
 ## Running with docker-compose
