@@ -3,7 +3,7 @@
 export const NSITE_ROOT_SITE_KIND = 15128 as number;
 
 // Identifier-specific site manifest (kind 35128) - addressable event WITH d tag
-// Used for identifier sites at: <identifier>.<npub>.nsite-host.com
+// Used canonically at: <50-char-pubkeyB36><dTag>.nsite-host.com
 export const NSITE_MANIFEST_KIND = 35128 as number;
 
 // Legacy individual file events (kind 34128) - deprecated, kept for backward compatibility

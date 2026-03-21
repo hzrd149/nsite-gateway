@@ -1,7 +1,6 @@
 import { contentType } from "@std/media-types";
 import { extname, join } from "@std/path/posix";
 import { nip19 } from "nostr-tools";
-import { npubEncode } from "nostr-tools/nip19";
 import { streamBlob } from "./blossom.ts";
 import { resolvePubkeyFromHostname } from "./dns.ts";
 import {
@@ -14,6 +13,7 @@ import {
   SUBSCRIPTION_RELAYS,
 } from "./env.ts";
 import { getNsiteBlob } from "./events.ts";
+import { formatNsiteSubdomain } from "./nsite-host.ts";
 import { getUserBlossomServers, getUserOutboxes } from "./nostr.ts";
 import { serveStaticFile } from "./static.ts";
 
@@ -27,10 +27,18 @@ type SiteResult =
     fallthrough: true;
   };
 
-function appendOnionLocation(headers: Headers, pubkey?: string) {
+function appendOnionLocation(
+  headers: Headers,
+  pubkey?: string,
+  identifier = "",
+) {
   if (!ONION_HOST) return;
   const url = new URL(ONION_HOST);
-  if (pubkey) url.hostname = `${npubEncode(pubkey)}.${url.hostname}`;
+  if (pubkey) {
+    url.hostname = `${
+      formatNsiteSubdomain(pubkey, identifier)
+    }.${url.hostname}`;
+  }
   headers.set("Onion-Location", url.toString().replace(/\/$/, ""));
 }
 
@@ -164,7 +172,7 @@ export async function handleSiteRequest(request: Request): Promise<SiteResult> {
     upstream.headers.get("last-modified") ||
       new Date(event.created_at * 1000).toUTCString(),
   );
-  appendOnionLocation(headers, pubkey);
+  appendOnionLocation(headers, pubkey, identifier);
 
   const status = upstream.status === 206
     ? 206

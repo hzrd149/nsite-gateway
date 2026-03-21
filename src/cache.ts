@@ -51,10 +51,9 @@ class TTLCache<T> {
 
 const ttlMs = CACHE_TIME * 1000;
 
-export const pubkeyDomains = new TTLCache<string | undefined>(
-  ttlMs,
-  CACHE_MAX_ENTRIES,
-);
+export const pubkeyDomains = new TTLCache<
+  { pubkey: string; identifier: string } | undefined
+>(ttlMs, CACHE_MAX_ENTRIES);
 export const pubkeyServers = new TTLCache<string[] | undefined>(
   ttlMs,
   CACHE_MAX_ENTRIES,
