@@ -3,7 +3,7 @@ import {
   assertExists,
   assertMatch,
 } from "jsr:@std/assert@^1.0.15";
-import { serveStaticFile } from "../static.ts";
+import { serveStaticFile } from "../services/static.ts";
 
 Deno.test({
   name: "serveStaticFile adds validators for local files",
@@ -43,8 +43,8 @@ Deno.test({
     try {
       await Deno.writeTextFile(`${root}/index.html`, "hello world");
 
-    const initial = await serveStaticFile(root, "/index.html", "HEAD");
-    const etag = initial?.headers.get("etag");
+      const initial = await serveStaticFile(root, "/index.html", "HEAD");
+      const etag = initial?.headers.get("etag");
 
       const response = await serveStaticFile(
         root,
@@ -73,8 +73,8 @@ Deno.test({
     try {
       await Deno.writeTextFile(`${root}/index.html`, "hello world");
 
-    const initial = await serveStaticFile(root, "/index.html", "HEAD");
-    const etag = initial?.headers.get("etag");
+      const initial = await serveStaticFile(root, "/index.html", "HEAD");
+      const etag = initial?.headers.get("etag");
 
       const response = await serveStaticFile(
         root,

@@ -1,7 +1,9 @@
 #!/usr/bin/env -S deno run --unstable-kv --allow-env --allow-net --allow-read --allow-write
 
 import { nip19 } from "nostr-tools";
-import { closeCache, initCache } from "./src/cache.ts";
+import { watchLiveEvents } from "./src/live.ts";
+import app from "./src/server.ts";
+import { closeCache, initCache } from "./src/services/cache.ts";
 import {
   BLOSSOM_PROXY,
   BLOSSOM_SERVERS,
@@ -14,10 +16,8 @@ import {
   NSITE_PORT,
   PUBLIC_DOMAIN,
   SUBSCRIPTION_RELAYS,
-} from "./src/env.ts";
-import { watchLiveEvents } from "./src/live.ts";
-import pool from "./src/nostr.ts";
-import { buildApp } from "./src/server.ts";
+} from "./src/helpers/env.ts";
+import pool from "./src/services/nostr.ts";
 
 function formatList(values: string[] | undefined, empty = "none") {
   return values && values.length > 0 ? values.join(", ") : empty;
@@ -54,8 +54,6 @@ function logStartupStatus() {
 }
 
 await initCache();
-
-const app = buildApp();
 
 logStartupStatus();
 

@@ -1,8 +1,8 @@
 import { nip05 } from "nostr-tools";
+import logger from "../helpers/debug.ts";
+import { NIP05_NAME_DOMAINS } from "../helpers/env.ts";
+import { parseNsiteHostname } from "../helpers/nsite-host.ts";
 import { pubkeyDomains } from "./cache.ts";
-import logger from "./logger.ts";
-import { parseNsiteHostname } from "./nsite-host.ts";
-import { NIP05_NAME_DOMAINS } from "./env.ts";
 
 const log = logger.extend("dns");
 

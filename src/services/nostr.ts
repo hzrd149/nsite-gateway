@@ -8,17 +8,40 @@ import { createEventLoaderForStore } from "applesauce-loaders/loaders";
 import { onlyEvents, RelayPool } from "applesauce-relay";
 import type { Filter, NostrEvent } from "nostr-tools";
 import { npubEncode } from "nostr-tools/nip19";
+import { NSITE_MANIFEST_KIND, NSITE_ROOT_SITE_KIND } from "../helpers/const.ts";
+import { CACHE_RELAYS, LOOKUP_RELAYS } from "../helpers/env.ts";
+import logger from "../helpers/debug.ts";
+import { logDiscoveredManifest } from "../helpers/manifest-log.ts";
+import { createPromiseLock } from "../helpers/promise-lock.ts";
 import { pubkeyRelays, pubkeyServers, siteManifests } from "./cache.ts";
-import { NSITE_MANIFEST_KIND, NSITE_ROOT_SITE_KIND } from "./const.ts";
-import { CACHE_RELAYS, LOOKUP_RELAYS } from "./env.ts";
-import { createPromiseLock } from "./helpers/promise-lock.ts";
-import logger from "./logger.ts";
 
 const log = logger.extend("nostr");
 const BLOSSOM_SERVER_LIST_KIND = 10063;
 
 const pool = new RelayPool();
 const eventStore = new EventStore();
+
+function getManifestIdentifier(event: NostrEvent): string | undefined {
+  return event.tags.find((tag) => tag[0] === "d" && tag[1] !== undefined)?.[1];
+}
+
+export function isMatchingManifestAddress(
+  event: NostrEvent,
+  pubkey: string,
+  identifier: string,
+): boolean {
+  if (event.pubkey !== pubkey) return false;
+
+  if (identifier === "") {
+    return event.kind === NSITE_ROOT_SITE_KIND &&
+      getManifestIdentifier(event) === undefined;
+  }
+
+  return (
+    event.kind === NSITE_MANIFEST_KIND &&
+    getManifestIdentifier(event) === identifier
+  );
+}
 
 const cacheRequest = CACHE_RELAYS
   ? (filters: Filter[]) =>
@@ -125,8 +148,15 @@ export const loadManifest = createPromiseLock(
     const loadLog = log.extend(`manifest:${npubEncode(pubkey)}:${scope}`);
     const cached = await siteManifests.get(key);
     if (cached) {
-      loadLog(`cache hit kind=${cached.kind} id=${cached.id}`);
-      return cached;
+      if (!isMatchingManifestAddress(cached, pubkey, identifier)) {
+        loadLog(
+          `discarding mismatched cached manifest kind=${cached.kind} id=${cached.id}`,
+        );
+        siteManifests.delete(key);
+      } else {
+        loadLog(`cache hit kind=${cached.kind} id=${cached.id}`);
+        return cached;
+      }
     }
 
     console.log(
@@ -156,8 +186,19 @@ export const loadManifest = createPromiseLock(
       return undefined;
     }
 
-    loadLog(`found new site manifest kind=${manifest.kind} id=${manifest.id}`);
+    if (!isMatchingManifestAddress(manifest, pubkey, identifier)) {
+      const manifestIdentifier = getManifestIdentifier(manifest) ?? "root";
+      console.error(
+        `[manifest] mismatch requested=${scope} got kind=${manifest.kind} identifier=${manifestIdentifier} id=${manifest.id}`,
+      );
+      loadLog(
+        `manifest mismatch requested=${scope} got kind=${manifest.kind} identifier=${manifestIdentifier} id=${manifest.id}`,
+      );
+      return undefined;
+    }
+
     loadLog(`manifest hit kind=${manifest.kind} id=${manifest.id}`);
+    logDiscoveredManifest(manifest);
     await siteManifests.set(key, manifest);
     return manifest;
   },

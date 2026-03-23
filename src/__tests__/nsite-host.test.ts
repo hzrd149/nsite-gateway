@@ -5,7 +5,7 @@ import {
   encodePubkeyB36,
   formatNsiteSubdomain,
   parseNsiteHostname,
-} from "../nsite-host.ts";
+} from "../helpers/nsite-host.ts";
 
 const PUBKEY =
   "266815e0c9210dfa324c6cba3573b14bee49da4209a9456f9484e5106cd408a5";

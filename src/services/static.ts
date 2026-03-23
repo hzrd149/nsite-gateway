@@ -1,7 +1,10 @@
 import { extname, join, normalize } from "@std/path";
 import { contentType } from "@std/media-types";
-import { createWeakFileEtag, hasMatchingIfNoneMatch } from "./http-cache.ts";
-import type { RequestLog } from "./request-log.ts";
+import {
+  createWeakFileEtag,
+  hasMatchingIfNoneMatch,
+} from "../helpers/http-cache.ts";
+import type { RequestLog } from "../helpers/request-log.ts";
 
 async function exists(path: string): Promise<boolean> {
   try {

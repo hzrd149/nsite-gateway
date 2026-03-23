@@ -3,7 +3,7 @@ import {
   createStrongEtag,
   createWeakFileEtag,
   hasMatchingIfNoneMatch,
-} from "../http-cache.ts";
+} from "../helpers/http-cache.ts";
 
 Deno.test("matches exact If-None-Match value", () => {
   const headers = new Headers({ "if-none-match": '"abc123"' });

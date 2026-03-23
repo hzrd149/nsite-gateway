@@ -1,12 +1,12 @@
 import type { NostrEvent } from "nostr-tools";
+import type { ParsedEvent } from "../helpers/events.ts";
+import logger from "../helpers/debug.ts";
 import {
   CACHE_BACKEND,
   CACHE_MAX_ENTRIES,
   CACHE_TIME,
   KV_PATH,
-} from "./env.ts";
-import type { ParsedEvent } from "./events.ts";
-import logger from "./logger.ts";
+} from "../helpers/env.ts";
 
 type CachedPathBlob = ParsedEvent & {
   servers?: string[];

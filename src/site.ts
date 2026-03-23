@@ -1,8 +1,18 @@
 import { contentType } from "@std/media-types";
 import { extname, join } from "@std/path/posix";
+import { relaySet } from "applesauce-core/helpers";
 import { nip19 } from "nostr-tools";
-import { streamBlob } from "./blossom.ts";
-import { resolvePubkeyFromHostname } from "./dns.ts";
+import { getNsiteBlob } from "./helpers/events.ts";
+import {
+  createStrongEtag,
+  hasMatchingIfNoneMatch,
+} from "./helpers/http-cache.ts";
+import { formatNsiteSubdomain } from "./helpers/nsite-host.ts";
+import type { RequestLog } from "./helpers/request-log.ts";
+import { BLOB_SOURCE_HEADER, streamBlob } from "./services/blossom.ts";
+import { resolvePubkeyFromHostname } from "./services/dns.ts";
+import { getUserBlossomServers, getUserOutboxes } from "./services/nostr.ts";
+import { serveStaticFile } from "./services/static.ts";
 import {
   BLOSSOM_PROXY,
   BLOSSOM_SERVERS,
@@ -11,15 +21,7 @@ import {
   ONION_HOST,
   PUBLIC_DOMAIN,
   SUBSCRIPTION_RELAYS,
-} from "./env.ts";
-import { getNsiteBlob } from "./events.ts";
-import { getUserBlossomServers, getUserOutboxes } from "./nostr.ts";
-import { formatNsiteSubdomain } from "./nsite-host.ts";
-import type { RequestLog } from "./request-log.ts";
-import { shortId } from "./request-log.ts";
-import { serveStaticFile } from "./static.ts";
-import { relaySet } from "applesauce-core/helpers";
-import { createStrongEtag, hasMatchingIfNoneMatch } from "./http-cache.ts";
+} from "./helpers/env.ts";
 
 type SiteResult =
   | {
@@ -91,7 +93,6 @@ export async function handleSiteRequest(
     pubkey = getHomepagePubkey();
     if (pubkey) {
       fallthrough = true;
-      requestLog?.addFields({ route: "homepage" });
     }
   } else if (resolved) {
     pubkey = resolved.pubkey;
@@ -103,11 +104,6 @@ export async function handleSiteRequest(
     requestLog?.setOutcome("site-404");
     return { response: await notFoundPage(url.pathname) };
   }
-
-  requestLog?.addFields({
-    pubkey: shortId(pubkey, 12),
-    ...(identifier ? { identifier } : {}),
-  });
 
   const relays = relaySet(await getUserOutboxes(pubkey), SUBSCRIPTION_RELAYS) ||
     [];
@@ -151,11 +147,6 @@ export async function handleSiteRequest(
     requestLog?.setOutcome("site-404");
     return { response: await notFoundPage(url.pathname) };
   }
-
-  requestLog?.addFields({
-    sha: shortId(event.sha256, 12),
-    src: event.source,
-  });
 
   const etag = createStrongEtag(event.sha256);
   if (!serveNotFound && hasMatchingIfNoneMatch(request.headers, etag)) {
@@ -205,7 +196,7 @@ export async function handleSiteRequest(
   });
 
   if (!upstream) {
-    requestLog?.setOutcome("upstream-fail", { tried: servers.length });
+    requestLog?.setOutcome("upstream-fail");
     return {
       response: new Response(
         "Bad Gateway: Unable to retrieve the requested file from storage servers.",
@@ -228,6 +219,9 @@ export async function handleSiteRequest(
     if (value) headers.set(name, value);
   }
 
+  const blobSource = upstream.headers.get(BLOB_SOURCE_HEADER);
+  if (blobSource) headers.set(BLOB_SOURCE_HEADER, blobSource);
+
   headers.set("ETag", etag);
   headers.set("Cache-Control", "public, max-age=3600");
   headers.set(
@@ -237,9 +231,7 @@ export async function handleSiteRequest(
   );
   appendOnionLocation(headers, pubkey, identifier);
 
-  requestLog?.setOutcome(serveNotFound ? "site-404" : "site-hit", {
-    tried: servers.length,
-  });
+  requestLog?.setOutcome(serveNotFound ? "site-404" : "site-hit");
 
   const status = serveNotFound
     ? 404

@@ -1,9 +1,9 @@
 import { extname, join } from "@std/path/posix";
 import type { NostrEvent } from "nostr-tools";
-import { manifestPaths, pathBlobs, siteManifests } from "./cache.ts";
-import { loadManifest } from "./nostr.ts";
+import { manifestPaths, pathBlobs, siteManifests } from "../services/cache.ts";
+import { loadManifest } from "../services/nostr.ts";
 import type { RequestLog } from "./request-log.ts";
-import { formatAgeFromUnix, shortId } from "./request-log.ts";
+import { shortId } from "./request-log.ts";
 
 export type ParsedEvent = {
   pubkey: string;
@@ -47,7 +47,6 @@ function addManifestLogFields(requestLog: RequestLog | undefined, event: {
   if (!requestLog || !event.id) return;
   requestLog.addFields({
     manifest: shortId(event.id, 12),
-    manifestAge: formatAgeFromUnix(event.created_at),
   });
 }
 
@@ -175,6 +174,7 @@ export async function getNsiteBlob(
   identifier = "",
   requestLog?: RequestLog,
 ): Promise<NsiteLookupResult> {
+  requestLog?.addFields({ site: identifier || "root" });
   const key = getPathBlobCacheKey(pubkey, identifier, path);
   const cached = await pathBlobs.get(key);
   if (cached?.manifestId) {

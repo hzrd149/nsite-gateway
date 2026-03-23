@@ -1,10 +1,11 @@
+import { MAX_BLOSSOM_SERVERS, MAX_FILE_SIZE } from "../helpers/env.ts";
+import logger from "../helpers/debug.ts";
+import type { RequestLog } from "../helpers/request-log.ts";
+import { shortId } from "../helpers/request-log.ts";
 import { blobURLs } from "./cache.ts";
-import { MAX_BLOSSOM_SERVERS, MAX_FILE_SIZE } from "./env.ts";
-import logger from "./logger.ts";
-import type { RequestLog } from "./request-log.ts";
-import { shortId } from "./request-log.ts";
 
 const log = logger.extend("blossom");
+export const BLOB_SOURCE_HEADER = "X-Blob-Source";
 
 function extractDomain(serverUrl: string): string {
   try {
@@ -135,8 +136,15 @@ export async function streamBlob(
       }
 
       if (response.status >= 200 && response.status < 300) {
-        requestState?.addFields({ server: extractDomain(urlString) });
-        if (!response.body || init?.method === "HEAD") return response;
+        if (!response.body || init?.method === "HEAD") {
+          const headers = new Headers(response.headers);
+          headers.set(BLOB_SOURCE_HEADER, urlString);
+          return new Response(null, {
+            status: response.status,
+            statusText: response.statusText,
+            headers,
+          });
+        }
 
         const body = limitBodySize(response.body, MAX_FILE_SIZE, () => {
           requestLog(
@@ -146,10 +154,13 @@ export async function streamBlob(
           controller.abort();
         });
 
+        const headers = new Headers(response.headers);
+        headers.set(BLOB_SOURCE_HEADER, urlString);
+
         return new Response(body, {
           status: response.status,
           statusText: response.statusText,
-          headers: response.headers,
+          headers,
         });
       }
     } catch (error) {
