@@ -112,6 +112,7 @@ export function buildApp() {
       c.req.method,
       200,
       requestLog,
+      c.req.raw.headers,
     );
     if (response) {
       requestLog.setOutcome("static-hit");
@@ -125,6 +126,8 @@ export function buildApp() {
       "/404.html",
       c.req.method,
       404,
+      undefined,
+      c.req.raw.headers,
     );
     if (fallback) return fallback;
     return new Response("Not Found", { status: 404 });
@@ -140,6 +143,7 @@ export function buildApp() {
       c.req.method,
       200,
       requestLog,
+      c.req.raw.headers,
     );
     if (response) {
       requestLog.setOutcome("static-hit");

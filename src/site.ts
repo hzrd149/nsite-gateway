@@ -19,6 +19,7 @@ import type { RequestLog } from "./request-log.ts";
 import { shortId } from "./request-log.ts";
 import { serveStaticFile } from "./static.ts";
 import { relaySet } from "applesauce-core/helpers";
+import { createStrongEtag, hasMatchingIfNoneMatch } from "./http-cache.ts";
 
 type SiteResult =
   | {
@@ -64,6 +65,10 @@ async function notFoundPage(pathname: string): Promise<Response> {
     `Not Found: The requested path "${pathname}" could not be found on this site.`,
     { status: 404 },
   );
+}
+
+function getSiteLastModified(createdAt: number): string {
+  return new Date(createdAt * 1000).toUTCString();
 }
 
 export async function handleSiteRequest(
@@ -152,6 +157,17 @@ export async function handleSiteRequest(
     src: event.source,
   });
 
+  const etag = createStrongEtag(event.sha256);
+  if (!serveNotFound && hasMatchingIfNoneMatch(request.headers, etag)) {
+    const headers = new Headers();
+    headers.set("ETag", etag);
+    headers.set("Cache-Control", "public, max-age=3600");
+    headers.set("Last-Modified", getSiteLastModified(event.created_at));
+    appendOnionLocation(headers, pubkey, identifier);
+    requestLog?.setOutcome("site-not-modified");
+    return { response: new Response(null, { status: 304, headers }) };
+  }
+
   const servers: string[] = [];
   const seen = new Set<string>();
   for (
@@ -212,12 +228,12 @@ export async function handleSiteRequest(
     if (value) headers.set(name, value);
   }
 
-  headers.set("ETag", upstream.headers.get("etag") || `"${event.sha256}"`);
+  headers.set("ETag", etag);
   headers.set("Cache-Control", "public, max-age=3600");
   headers.set(
     "Last-Modified",
     upstream.headers.get("last-modified") ||
-      new Date(event.created_at * 1000).toUTCString(),
+      getSiteLastModified(event.created_at),
   );
   appendOnionLocation(headers, pubkey, identifier);
 

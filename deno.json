@@ -1,6 +1,6 @@
 {
   "name": "@hzrd149/nsite-gateway",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "exports": "./main.ts",
   "compilerOptions": {
     "lib": ["dom", "dom.iterable", "esnext", "deno.ns", "deno.unstable"]

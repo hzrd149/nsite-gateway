@@ -1,5 +1,6 @@
 import { extname, join, normalize } from "@std/path";
 import { contentType } from "@std/media-types";
+import { createWeakFileEtag, hasMatchingIfNoneMatch } from "./http-cache.ts";
 import type { RequestLog } from "./request-log.ts";
 
 async function exists(path: string): Promise<boolean> {
@@ -52,6 +53,7 @@ export async function serveStaticFile(
   method = "GET",
   status = 200,
   requestLog?: RequestLog,
+  requestHeaders?: Pick<Headers, "get">,
 ): Promise<Response | null> {
   const { filePath, rejected } = await resolveFile(root, requestPath);
   if (rejected) {
@@ -59,19 +61,29 @@ export async function serveStaticFile(
   }
   if (!filePath || !(await exists(filePath))) return null;
 
-  const file = await Deno.open(filePath, { read: true });
   const headers = new Headers();
   const type = contentType(extname(filePath)) || "application/octet-stream";
-  const stat = await file.stat();
+  const stat = await Deno.stat(filePath);
+  const etag = createWeakFileEtag(stat);
 
   headers.set("content-type", type);
-  headers.set("content-length", String(stat.size));
   headers.set("cache-control", "public, max-age=3600");
+  if (etag) headers.set("etag", etag);
+  if (stat.mtime) headers.set("last-modified", stat.mtime.toUTCString());
+
+  if (
+    status === 200 && etag && requestHeaders &&
+    hasMatchingIfNoneMatch(requestHeaders, etag)
+  ) {
+    return new Response(null, { status: 304, headers });
+  }
+
+  headers.set("content-length", String(stat.size));
 
   if (method === "HEAD") {
-    file.close();
     return new Response(null, { status, headers });
   }
 
+  const file = await Deno.open(filePath, { read: true });
   return new Response(file.readable, { status, headers });
 }

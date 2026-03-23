@@ -1,5 +1,12 @@
 # nsite-gateway
 
+## 2.1.0
+
+### Minor Changes
+
+- Add ETag-based conditional requests for nsite content and local static files
+- Return `304 Not Modified` for matching `If-None-Match` requests without fetching unchanged content
+
 ## 2.0.0
 
 ### Major Changes
