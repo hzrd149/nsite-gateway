@@ -9,6 +9,10 @@ function getList(name: string, fallback: string[] = []): string[] {
     .filter(Boolean);
 }
 
+function getPublicDomain(): string | undefined {
+  return Deno.env.get("PUBLIC_DOMAIN") || undefined;
+}
+
 async function checkLocalHttp(url: string): Promise<boolean> {
   try {
     const response = await fetch(url, {
@@ -36,11 +40,6 @@ const CACHE_RELAYS = Deno.env.get("CACHE_RELAYS")
   : (await checkLocalHttp("http://localhost:4869"))
   ? [LOCAL_CACHE_RELAY]
   : undefined;
-
-const SUBSCRIPTION_RELAYS = getList("SUBSCRIPTION_RELAYS", [
-  "wss://nos.lol",
-  "wss://relay.damus.io",
-]);
 
 const BLOSSOM_SERVERS = getList("BLOSSOM_SERVERS");
 
@@ -70,7 +69,7 @@ const CACHE_TIME = Deno.env.get("CACHE_TIME")
   : 60 * 60;
 
 const NIP05_NAME_DOMAINS = getList("NIP05_NAME_DOMAINS");
-const PUBLIC_DOMAIN = Deno.env.get("PUBLIC_DOMAIN") || undefined;
+const PUBLIC_DOMAIN = getPublicDomain();
 
 const NSITE_HOST = Deno.env.get("NSITE_HOST") || "0.0.0.0";
 const NSITE_PORT = Deno.env.get("NSITE_PORT")
@@ -87,6 +86,7 @@ export {
   CACHE_MAX_ENTRIES,
   CACHE_RELAYS,
   CACHE_TIME,
+  getPublicDomain,
   HOST,
   KV_PATH,
   LOOKUP_RELAYS,
@@ -99,5 +99,4 @@ export {
   NSITE_PORT,
   ONION_HOST,
   PUBLIC_DOMAIN,
-  SUBSCRIPTION_RELAYS,
 };

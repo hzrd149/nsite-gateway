@@ -1,7 +1,5 @@
 import { MAX_BLOSSOM_SERVERS, MAX_FILE_SIZE } from "../helpers/env.ts";
 import logger from "../helpers/debug.ts";
-import type { RequestLog } from "../helpers/request-log.ts";
-import { shortId } from "../helpers/request-log.ts";
 import { blobURLs } from "./cache.ts";
 
 const log = logger.extend("blossom");
@@ -100,13 +98,11 @@ export async function streamBlob(
     headers?: HeadersInit;
     pubkey?: string;
     blossomProxy?: string;
-    requestLog?: RequestLog;
   },
 ): Promise<Response | undefined> {
   if (servers.length === 0) return undefined;
 
   const requestLog = log.extend(sha256.slice(0, 6));
-  const requestState = init?.requestLog;
   const urls = await findBlobURLs(sha256, servers, {
     pubkey: init?.pubkey,
     blossomProxy: init?.blossomProxy,
@@ -172,12 +168,6 @@ export async function streamBlob(
       );
     }
   }
-
-  requestState?.error("blossom fetch failed", {
-    reason: lastFailure || "no-upstream-response",
-    sha: shortId(sha256, 12),
-    tried: urls.length,
-  });
 
   return undefined;
 }

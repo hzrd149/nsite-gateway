@@ -1,37 +1,27 @@
 import { contentType } from "@std/media-types";
 import { extname, join } from "@std/path/posix";
 import { relaySet } from "applesauce-core/helpers";
-import { nip19 } from "nostr-tools";
 import { getNsiteBlob } from "./helpers/events.ts";
 import {
   createStrongEtag,
   hasMatchingIfNoneMatch,
 } from "./helpers/http-cache.ts";
 import { formatNsiteSubdomain } from "./helpers/nsite-host.ts";
-import type { RequestLog } from "./helpers/request-log.ts";
 import { BLOB_SOURCE_HEADER, streamBlob } from "./services/blossom.ts";
-import { resolvePubkeyFromHostname } from "./services/dns.ts";
 import { getUserBlossomServers, getUserOutboxes } from "./services/nostr.ts";
 import { serveStaticFile } from "./services/static.ts";
 import {
   BLOSSOM_PROXY,
   BLOSSOM_SERVERS,
+  LOOKUP_RELAYS,
   MAX_BLOSSOM_SERVERS,
-  NSITE_HOMEPAGE,
   ONION_HOST,
-  PUBLIC_DOMAIN,
-  SUBSCRIPTION_RELAYS,
 } from "./helpers/env.ts";
 
-type SiteResult =
-  | {
-    response: Response;
-    fallthrough?: false;
-  }
-  | {
-    response?: undefined;
-    fallthrough: true;
-  };
+export type ResolvedSite = {
+  pubkey: string;
+  identifier: string;
+};
 
 function appendOnionLocation(
   headers: Headers,
@@ -40,19 +30,13 @@ function appendOnionLocation(
 ) {
   if (!ONION_HOST) return;
   const url = new URL(ONION_HOST);
-  if (pubkey) {
-    url.hostname = `${
-      formatNsiteSubdomain(pubkey, identifier)
-    }.${url.hostname}`;
+  const subdomain = pubkey
+    ? formatNsiteSubdomain(pubkey, identifier)
+    : undefined;
+  if (subdomain) {
+    url.hostname = `${subdomain}.${url.hostname}`;
   }
   headers.set("Onion-Location", url.toString().replace(/\/$/, ""));
-}
-
-function getHomepagePubkey(): string | undefined {
-  const parsed = nip19.decode(NSITE_HOMEPAGE);
-  if (parsed.type === "nprofile") return parsed.data.pubkey;
-  if (parsed.type === "npub") return parsed.data;
-  return undefined;
 }
 
 async function notFoundPage(pathname: string): Promise<Response> {
@@ -75,46 +59,21 @@ function getSiteLastModified(createdAt: number): string {
 
 export async function handleSiteRequest(
   request: Request,
-  requestLog?: RequestLog,
-): Promise<SiteResult> {
+  site: ResolvedSite,
+): Promise<Response> {
   const url = new URL(request.url);
-  const hostname = url.hostname;
   const method = request.method === "HEAD" ? "HEAD" : "GET";
+  const { pubkey, identifier } = site;
 
-  const resolved = await resolvePubkeyFromHostname(hostname);
-  let pubkey: string | undefined;
-  let identifier = "";
-  let fallthrough = false;
-
-  if (
-    !resolved && NSITE_HOMEPAGE &&
-    (!PUBLIC_DOMAIN || hostname === PUBLIC_DOMAIN)
-  ) {
-    pubkey = getHomepagePubkey();
-    if (pubkey) {
-      fallthrough = true;
-    }
-  } else if (resolved) {
-    pubkey = resolved.pubkey;
-    identifier = resolved.identifier;
-  }
-
-  if (!pubkey) {
-    if (fallthrough) return { fallthrough: true };
-    requestLog?.setOutcome("site-404");
-    return { response: await notFoundPage(url.pathname) };
-  }
-
-  const relays = relaySet(await getUserOutboxes(pubkey), SUBSCRIPTION_RELAYS) ||
+  const relays = relaySet(await getUserOutboxes(pubkey), LOOKUP_RELAYS) ||
     [];
   if (relays.length === 0) {
-    requestLog?.setOutcome("site-no-relays");
-    return { response: new Response("No relays found", { status: 502 }) };
+    return new Response("No relays found", { status: 502 });
   }
 
   const [userServers, lookup] = await Promise.all([
     getUserBlossomServers(pubkey, relays).then((servers) => servers || []),
-    getNsiteBlob(pubkey, url.pathname, relays, identifier, requestLog),
+    getNsiteBlob(pubkey, url.pathname, relays, identifier),
   ]);
 
   let event;
@@ -128,24 +87,18 @@ export async function handleSiteRequest(
       "/404.html",
       relays,
       identifier,
-      requestLog,
     );
 
     if (notFoundLookup.kind === "hit") {
       event = notFoundLookup.event;
       serveNotFound = true;
     } else {
-      if (lookup.kind === "manifest-miss") {
-        requestLog?.addFields({ src: "manifest" });
-      }
-      requestLog?.setOutcome("site-404");
-      return { response: await notFoundPage(url.pathname) };
+      return await notFoundPage(url.pathname);
     }
   }
 
   if (!event) {
-    requestLog?.setOutcome("site-404");
-    return { response: await notFoundPage(url.pathname) };
+    return await notFoundPage(url.pathname);
   }
 
   const etag = createStrongEtag(event.sha256);
@@ -155,8 +108,7 @@ export async function handleSiteRequest(
     headers.set("Cache-Control", "public, max-age=3600");
     headers.set("Last-Modified", getSiteLastModified(event.created_at));
     appendOnionLocation(headers, pubkey, identifier);
-    requestLog?.setOutcome("site-not-modified");
-    return { response: new Response(null, { status: 304, headers }) };
+    return new Response(null, { status: 304, headers });
   }
 
   const servers: string[] = [];
@@ -175,12 +127,9 @@ export async function handleSiteRequest(
     }
   }
   if (servers.length === 0) {
-    requestLog?.setOutcome("site-no-servers");
-    return {
-      response: new Response("Not Found: No blossom servers available", {
-        status: 404,
-      }),
-    };
+    return new Response("Not Found: No blossom servers available", {
+      status: 404,
+    });
   }
 
   const requestHeaders = new Headers();
@@ -192,19 +141,15 @@ export async function handleSiteRequest(
     headers: requestHeaders,
     pubkey,
     blossomProxy: BLOSSOM_PROXY,
-    requestLog,
   });
 
   if (!upstream) {
-    requestLog?.setOutcome("upstream-fail");
-    return {
-      response: new Response(
-        "Bad Gateway: Unable to retrieve the requested file from storage servers.",
-        {
-          status: 502,
-        },
-      ),
-    };
+    return new Response(
+      "Bad Gateway: Unable to retrieve the requested file from storage servers.",
+      {
+        status: 502,
+      },
+    );
   }
 
   const headers = new Headers();
@@ -231,8 +176,6 @@ export async function handleSiteRequest(
   );
   appendOnionLocation(headers, pubkey, identifier);
 
-  requestLog?.setOutcome(serveNotFound ? "site-404" : "site-hit");
-
   const status = serveNotFound
     ? 404
     : upstream.status === 206
@@ -241,5 +184,5 @@ export async function handleSiteRequest(
     ? 200
     : upstream.status;
   const body = method === "HEAD" ? null : upstream.body;
-  return { response: new Response(body, { status, headers }) };
+  return new Response(body, { status, headers });
 }

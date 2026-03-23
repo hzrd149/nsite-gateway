@@ -4,7 +4,6 @@ import {
   createWeakFileEtag,
   hasMatchingIfNoneMatch,
 } from "../helpers/http-cache.ts";
-import type { RequestLog } from "../helpers/request-log.ts";
 
 async function exists(path: string): Promise<boolean> {
   try {
@@ -55,13 +54,10 @@ export async function serveStaticFile(
   requestPath: string,
   method = "GET",
   status = 200,
-  requestLog?: RequestLog,
   requestHeaders?: Pick<Headers, "get">,
 ): Promise<Response | null> {
   const { filePath, rejected } = await resolveFile(root, requestPath);
-  if (rejected) {
-    requestLog?.error("static path rejected", { path: requestPath });
-  }
+  if (rejected) return null;
   if (!filePath || !(await exists(filePath))) return null;
 
   const headers = new Headers();

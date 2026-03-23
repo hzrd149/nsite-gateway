@@ -1,5 +1,5 @@
 import type { NostrEvent } from "nostr-tools";
-import { formatAgeFromUnix } from "./request-log.ts";
+import { formatAgeFromUnix } from "./format.ts";
 
 export type ManifestLogDetails = {
   id: string;

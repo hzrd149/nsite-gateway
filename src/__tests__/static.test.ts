@@ -51,7 +51,6 @@ Deno.test({
         "/index.html",
         "GET",
         200,
-        undefined,
         new Headers({ "if-none-match": etag || "" }),
       );
 
@@ -81,7 +80,6 @@ Deno.test({
         "/index.html",
         "GET",
         200,
-        undefined,
         new Headers({
           "if-none-match": etag || "",
           "range": "bytes=0-4",

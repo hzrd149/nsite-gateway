@@ -1,6 +1,7 @@
 {
   "version": "5",
   "specifiers": {
+    "jsr:@hono/hono@*": "4.12.7",
     "jsr:@hono/hono@^4.12.7": "4.12.7",
     "jsr:@std/assert@^1.0.15": "1.0.19",
     "jsr:@std/assert@^1.0.17": "1.0.19",

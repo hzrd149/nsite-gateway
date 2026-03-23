@@ -1,3 +1,4 @@
+import { join } from "@std/path";
 import type { NostrEvent } from "nostr-tools";
 import type { ParsedEvent } from "../helpers/events.ts";
 import logger from "../helpers/debug.ts";
@@ -8,21 +9,29 @@ import {
   KV_PATH,
 } from "../helpers/env.ts";
 
+const log = logger.extend("cache");
+
 type CachedPathBlob = ParsedEvent & {
   servers?: string[];
   source?: "manifest";
   manifestId?: string;
 };
 
-type CacheStore<T> = {
+export type CacheEntry<T> = {
+  key: string;
+  value: T;
+};
+
+type GatewayCache<T> = {
   get(key: string): Promise<T | undefined>;
   set(key: string, value: T): Promise<void>;
   delete(key: string): void;
+  list(): Promise<CacheEntry<T>[]>;
+  init(): Promise<void>;
+  close(): Promise<void>;
 };
 
-const log = logger.extend("cache");
-
-class MemoryCache<T> implements CacheStore<T> {
+class MemoryCache<T> implements GatewayCache<T> {
   #ttlMs: number;
   #maxEntries: number;
   #store = new Map<string, { value: T; expiresAt: number }>();
@@ -47,76 +56,93 @@ class MemoryCache<T> implements CacheStore<T> {
     }
   }
 
-  async get(key: string): Promise<T | undefined> {
+  get(key: string): Promise<T | undefined> {
     const entry = this.#store.get(key);
-    if (!entry) return undefined;
+    if (!entry) return Promise.resolve(undefined);
     if (entry.expiresAt <= Date.now()) {
       this.#store.delete(key);
-      return undefined;
+      return Promise.resolve(undefined);
     }
-    return entry.value;
+    return Promise.resolve(entry.value);
   }
 
-  async set(key: string, value: T): Promise<void> {
+  set(key: string, value: T): Promise<void> {
     this.#sweepExpired();
     if (this.#store.has(key)) this.#store.delete(key);
     this.#store.set(key, { value, expiresAt: Date.now() + this.#ttlMs });
     this.#evictOldest();
+    return Promise.resolve();
   }
 
   delete(key: string): void {
     this.#store.delete(key);
   }
-}
 
-let kvPromise: Promise<Deno.Kv | undefined> | undefined;
-
-async function getKv(): Promise<Deno.Kv | undefined> {
-  if (CACHE_BACKEND !== "kv") return undefined;
-  if (!kvPromise) {
-    kvPromise = Deno.openKv(KV_PATH).then((kv) => {
-      log(
-        KV_PATH
-          ? `Using Deno KV cache at ${KV_PATH}`
-          : "Using default Deno KV cache location",
-      );
-      return kv;
-    });
+  list(): Promise<CacheEntry<T>[]> {
+    this.#sweepExpired();
+    return Promise.resolve([...this.#store.entries()].map(([key, entry]) => ({
+      key,
+      value: entry.value,
+    })));
   }
-  return await kvPromise;
+
+  init(): Promise<void> {
+    return Promise.resolve();
+  }
+
+  close(): Promise<void> {
+    return Promise.resolve();
+  }
 }
 
-class KvCache<T> implements CacheStore<T> {
+const KV_FILE_EXTENSION = ".kv";
+
+function getKvStorePath(namespace: string): string | undefined {
+  if (!KV_PATH) return undefined;
+  return join(KV_PATH, `${namespace}${KV_FILE_EXTENSION}`);
+}
+
+class KvCache<T> implements GatewayCache<T> {
   #namespace: string;
   #ttlMs: number;
+  #kvPromise: Promise<Deno.Kv> | undefined;
 
   constructor(namespace: string, ttlMs: number) {
     this.#namespace = namespace;
     this.#ttlMs = ttlMs;
   }
 
-  #key(key: string): Deno.KvKey {
-    return ["cache", this.#namespace, key];
+  async #getKv(): Promise<Deno.Kv> {
+    if (!this.#kvPromise) {
+      this.#kvPromise = (async () => {
+        const path = getKvStorePath(this.#namespace);
+        if (KV_PATH) {
+          await Deno.mkdir(KV_PATH, { recursive: true });
+          log(`Using Deno KV cache ${this.#namespace} at ${path}`);
+        } else {
+          log(
+            `Using default Deno KV cache location for ${this.#namespace}`,
+          );
+        }
+        return await Deno.openKv(path);
+      })();
+    }
+    return await this.#kvPromise;
   }
 
   async get(key: string): Promise<T | undefined> {
-    const kv = await getKv();
-    if (!kv) return undefined;
-    const entry = await kv.get<T>(this.#key(key));
+    const kv = await this.#getKv();
+    const entry = await kv.get<T>([key]);
     return entry.value ?? undefined;
   }
 
   async set(key: string, value: T): Promise<void> {
-    const kv = await getKv();
-    if (!kv) return;
-    await kv.set(this.#key(key), value, { expireIn: this.#ttlMs });
+    const kv = await this.#getKv();
+    await kv.set([key], value, { expireIn: this.#ttlMs });
   }
 
   delete(key: string): void {
-    void getKv().then((kv) => {
-      if (!kv) return;
-      return kv.delete(this.#key(key));
-    }).catch((error) => {
+    void this.#getKv().then((kv) => kv.delete([key])).catch((error) => {
       log(
         `Failed to delete cache key ${this.#namespace}:${key}: ${
           error instanceof Error ? error.message : String(error)
@@ -124,40 +150,53 @@ class KvCache<T> implements CacheStore<T> {
       );
     });
   }
-}
 
-class Cache<T> {
-  #memory: MemoryCache<T>;
-  #kv: KvCache<T>;
+  async list(): Promise<CacheEntry<T>[]> {
+    const kv = await this.#getKv();
+    const entries: CacheEntry<T>[] = [];
 
-  constructor(namespace: string, ttlMs: number, maxEntries: number) {
-    this.#memory = new MemoryCache<T>(ttlMs, maxEntries);
-    this.#kv = new KvCache<T>(namespace, ttlMs);
+    for await (const entry of kv.list<T>({ prefix: [] })) {
+      const key = entry.key[0];
+      if (typeof key !== "string" || entry.value === null) continue;
+      entries.push({ key, value: entry.value });
+    }
+
+    return entries;
   }
 
-  async get(key: string): Promise<T | undefined> {
-    if (CACHE_BACKEND === "kv") return await this.#kv.get(key);
-    return await this.#memory.get(key);
+  async init(): Promise<void> {
+    await this.#getKv();
   }
 
-  async set(key: string, value: T): Promise<void> {
-    if (CACHE_BACKEND === "kv") return await this.#kv.set(key, value);
-    return await this.#memory.set(key, value);
-  }
-
-  delete(key: string): void {
-    if (CACHE_BACKEND === "kv") return this.#kv.delete(key);
-    return this.#memory.delete(key);
+  async close(): Promise<void> {
+    const kv = await this.#kvPromise;
+    kv?.close();
+    this.#kvPromise = undefined;
   }
 }
 
 export async function closeCache(): Promise<void> {
-  const kv = await kvPromise;
-  kv?.close();
+  await Promise.all([
+    pubkeyDomains.close(),
+    pubkeyServers.close(),
+    pubkeyRelays.close(),
+    pathBlobs.close(),
+    manifestPaths.close(),
+    siteManifests.close(),
+    blobURLs.close(),
+  ]);
 }
 
 export async function initCache(): Promise<void> {
-  await getKv();
+  await Promise.all([
+    pubkeyDomains.init(),
+    pubkeyServers.init(),
+    pubkeyRelays.init(),
+    pathBlobs.init(),
+    manifestPaths.init(),
+    siteManifests.init(),
+    blobURLs.init(),
+  ]);
 }
 
 const ttlMs = CACHE_TIME * 1000;
@@ -166,36 +205,32 @@ if (CACHE_BACKEND === "in-memory") {
   log(`Using in-memory cache (${CACHE_MAX_ENTRIES} max entries)`);
 }
 
-export const pubkeyDomains = new Cache<
+export const pubkeyDomains: GatewayCache<
   { pubkey: string; identifier: string } | undefined
->("domains", ttlMs, CACHE_MAX_ENTRIES);
-export const pubkeyServers = new Cache<string[] | undefined>(
-  "servers",
-  ttlMs,
-  CACHE_MAX_ENTRIES,
-);
-export const pubkeyRelays = new Cache<string[] | undefined>(
-  "relays",
-  ttlMs,
-  CACHE_MAX_ENTRIES,
-);
-export const pathBlobs = new Cache<CachedPathBlob | undefined>(
-  "paths",
-  ttlMs,
-  CACHE_MAX_ENTRIES,
-);
-export const manifestPaths = new Cache<string[] | undefined>(
-  "manifest-paths",
-  ttlMs,
-  CACHE_MAX_ENTRIES,
-);
-export const siteManifests = new Cache<NostrEvent | undefined>(
-  "manifests",
-  ttlMs,
-  CACHE_MAX_ENTRIES,
-);
-export const blobURLs = new Cache<string[] | undefined>(
-  "blobs",
-  ttlMs,
-  CACHE_MAX_ENTRIES,
-);
+> = CACHE_BACKEND === "kv"
+  ? new KvCache("domains", ttlMs)
+  : new MemoryCache(ttlMs, CACHE_MAX_ENTRIES);
+export const pubkeyServers: GatewayCache<string[] | undefined> =
+  CACHE_BACKEND === "kv"
+    ? new KvCache("servers", ttlMs)
+    : new MemoryCache(ttlMs, CACHE_MAX_ENTRIES);
+export const pubkeyRelays: GatewayCache<string[] | undefined> =
+  CACHE_BACKEND === "kv"
+    ? new KvCache("relays", ttlMs)
+    : new MemoryCache(ttlMs, CACHE_MAX_ENTRIES);
+export const pathBlobs: GatewayCache<CachedPathBlob | undefined> =
+  CACHE_BACKEND === "kv"
+    ? new KvCache("paths", ttlMs)
+    : new MemoryCache(ttlMs, CACHE_MAX_ENTRIES);
+export const manifestPaths: GatewayCache<string[] | undefined> =
+  CACHE_BACKEND === "kv"
+    ? new KvCache("manifest-paths", ttlMs)
+    : new MemoryCache(ttlMs, CACHE_MAX_ENTRIES);
+export const siteManifests: GatewayCache<NostrEvent | undefined> =
+  CACHE_BACKEND === "kv"
+    ? new KvCache("manifests", ttlMs)
+    : new MemoryCache(ttlMs, CACHE_MAX_ENTRIES);
+export const blobURLs: GatewayCache<string[] | undefined> =
+  CACHE_BACKEND === "kv"
+    ? new KvCache("blobs", ttlMs)
+    : new MemoryCache(ttlMs, CACHE_MAX_ENTRIES);

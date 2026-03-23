@@ -1,10 +1,14 @@
-import { nip05 } from "nostr-tools";
 import logger from "../helpers/debug.ts";
-import { NIP05_NAME_DOMAINS } from "../helpers/env.ts";
 import { parseNsiteHostname } from "../helpers/nsite-host.ts";
 import { pubkeyDomains } from "./cache.ts";
 
 const log = logger.extend("dns");
+
+type ResolvedPubkey = { pubkey: string; identifier: string };
+type ResolveDns = (
+  hostname: string,
+  recordType: "CNAME",
+) => Promise<string[]>;
 
 async function getCnameRecords(hostname: string): Promise<string[]> {
   try {
@@ -14,17 +18,10 @@ async function getCnameRecords(hostname: string): Promise<string[]> {
   }
 }
 
-async function getTxtRecords(hostname: string): Promise<string[][]> {
-  try {
-    return await Deno.resolveDns(hostname, "TXT");
-  } catch {
-    return [];
-  }
-}
-
 export async function resolvePubkeyFromHostname(
   hostname: string,
-): Promise<{ pubkey: string; identifier: string } | undefined> {
+  resolveDns: ResolveDns = getCnameRecords,
+): Promise<ResolvedPubkey | undefined> {
   if (hostname === "localhost") return undefined;
 
   const cached = await pubkeyDomains.get(hostname);
@@ -33,39 +30,11 @@ export async function resolvePubkeyFromHostname(
   let resolved = parseNsiteHostname(hostname);
 
   if (!resolved) {
-    for (const cname of await getCnameRecords(hostname)) {
+    for (const cname of await resolveDns(hostname, "CNAME")) {
       const candidate = parseNsiteHostname(cname);
       if (candidate) {
         resolved = candidate;
         break;
-      }
-    }
-  }
-
-  if (!resolved) {
-    for (const txt of await getTxtRecords(hostname)) {
-      for (const entry of txt) {
-        const candidate = parseNsiteHostname(entry);
-        if (candidate) {
-          resolved = candidate;
-          break;
-        }
-      }
-      if (resolved) break;
-    }
-  }
-
-  if (!resolved && NIP05_NAME_DOMAINS.length > 0) {
-    const [name] = hostname.split(".");
-    for (const domain of NIP05_NAME_DOMAINS) {
-      try {
-        const result = await nip05.queryProfile(`${name}@${domain}`);
-        if (result) {
-          resolved = { pubkey: result.pubkey, identifier: "" };
-          break;
-        }
-      } catch {
-        continue;
       }
     }
   }

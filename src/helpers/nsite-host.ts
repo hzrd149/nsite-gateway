@@ -55,20 +55,9 @@ function parseCanonicalSiteLabel(label: string) {
   return { pubkey, identifier };
 }
 
-function parseLegacySiteHostname(parts: string[]) {
-  const npubIndex = parts.findIndex((part) => part.startsWith("npub"));
-  if (npubIndex < 0) return undefined;
-
-  const pubkey = decodeNpub(parts[npubIndex]);
-  if (!pubkey) return undefined;
-
-  return {
-    pubkey,
-    identifier: npubIndex > 0 ? parts[0] : "",
-  };
-}
-
-export function parseNsiteHostname(hostname: string) {
+export function parseNsiteHostname(
+  hostname: string,
+): { pubkey: string; identifier: string } | undefined {
   const parts = hostname.toLowerCase().split(".").filter(Boolean);
   const label = parts[0];
   if (!label) return undefined;
@@ -79,10 +68,13 @@ export function parseNsiteHostname(hostname: string) {
   const canonical = parseCanonicalSiteLabel(label);
   if (canonical) return canonical;
 
-  return parseLegacySiteHostname(parts);
+  return undefined;
 }
 
-export function formatNsiteSubdomain(pubkey: string, identifier = "") {
+export function formatNsiteSubdomain(
+  pubkey: string,
+  identifier = "",
+): string | undefined {
   const npub = nip19.npubEncode(pubkey);
   if (!identifier) return npub;
 
@@ -91,5 +83,5 @@ export function formatNsiteSubdomain(pubkey: string, identifier = "") {
     if (pubkeyB36) return `${pubkeyB36}${identifier}`;
   }
 
-  return `${identifier}.${npub}`;
+  return undefined;
 }

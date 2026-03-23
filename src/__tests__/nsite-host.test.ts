@@ -44,11 +44,8 @@ Deno.test("parses canonical named-site hostname with hyphen", () => {
   });
 });
 
-Deno.test("parses legacy named-site hostname", () => {
-  assertEquals(parseNsiteHostname(`blog.${NPUB}.example.com`), {
-    pubkey: PUBKEY,
-    identifier: "blog",
-  });
+Deno.test("rejects legacy named-site hostname", () => {
+  assertEquals(parseNsiteHostname(`blog.${NPUB}.example.com`), undefined);
 });
 
 Deno.test("formats canonical hostname for hyphenated identifiers", () => {
@@ -58,8 +55,8 @@ Deno.test("formats canonical hostname for hyphenated identifiers", () => {
   assertEquals(formatNsiteSubdomain(PUBKEY, "my-blog"), `${pubkeyB36}my-blog`);
 });
 
-Deno.test("falls back to legacy format for identifiers ending in hyphen", () => {
-  assertEquals(formatNsiteSubdomain(PUBKEY, "blog-"), `blog-.${NPUB}`);
+Deno.test("rejects unsupported identifiers when formatting hostnames", () => {
+  assertEquals(formatNsiteSubdomain(PUBKEY, "blog-"), undefined);
 });
 
 Deno.test("rejects canonical named-site labels ending in hyphen", () => {

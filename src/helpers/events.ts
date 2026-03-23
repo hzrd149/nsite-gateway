@@ -2,8 +2,6 @@ import { extname, join } from "@std/path/posix";
 import type { NostrEvent } from "nostr-tools";
 import { manifestPaths, pathBlobs, siteManifests } from "../services/cache.ts";
 import { loadManifest } from "../services/nostr.ts";
-import type { RequestLog } from "./request-log.ts";
-import { shortId } from "./request-log.ts";
 
 export type ParsedEvent = {
   pubkey: string;
@@ -39,16 +37,6 @@ export type NsiteLookupResult =
   | {
     kind: "miss";
   };
-
-function addManifestLogFields(requestLog: RequestLog | undefined, event: {
-  id?: string;
-  created_at: number;
-}) {
-  if (!requestLog || !event.id) return;
-  requestLog.addFields({
-    manifest: shortId(event.id, 12),
-  });
-}
 
 export function getSearchPaths(path: string) {
   const paths = [path];
@@ -172,16 +160,10 @@ export async function getNsiteBlob(
   path: string,
   relays: string[],
   identifier = "",
-  requestLog?: RequestLog,
 ): Promise<NsiteLookupResult> {
-  requestLog?.addFields({ site: identifier || "root" });
   const key = getPathBlobCacheKey(pubkey, identifier, path);
   const cached = await pathBlobs.get(key);
   if (cached?.manifestId) {
-    addManifestLogFields(requestLog, {
-      id: cached.manifestId,
-      created_at: cached.created_at,
-    });
     return {
       kind: "hit",
       event: { ...cached, source: "manifest" },
@@ -194,11 +176,9 @@ export async function getNsiteBlob(
     if (parsedManifest) {
       const refreshed = await pathBlobs.get(key);
       if (refreshed?.manifestId) {
-        addManifestLogFields(requestLog, manifest);
         return { kind: "hit", event: { ...refreshed, source: "manifest" } };
       }
 
-      requestLog?.addFields({ src: "manifest" });
       return { kind: "manifest-miss" };
     }
   }

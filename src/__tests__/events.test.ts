@@ -1,11 +1,7 @@
-import { assertEquals, assertFalse } from "jsr:@std/assert@^1.0.15";
+import { assertEquals } from "jsr:@std/assert@^1.0.15";
 import { cacheManifestEvent, getNsiteBlob } from "../helpers/events.ts";
+import { shortId } from "../helpers/format.ts";
 import { getManifestLogDetails } from "../helpers/manifest-log.ts";
-import {
-  createRequestLog,
-  createRequestLogState,
-  shortId,
-} from "../helpers/request-log.ts";
 import { manifestPaths, pathBlobs, siteManifests } from "../services/cache.ts";
 
 function createManifestEvent(overrides: {
@@ -48,28 +44,26 @@ Deno.test("getManifestLogDetails returns full discovery fields", () => {
 });
 
 Deno.test({
-  name: "getNsiteBlob only logs manifest id for cached manifest hits",
+  name: "getNsiteBlob returns cached manifest hits with manifest id",
   permissions: { env: true },
   async fn() {
     const event = createManifestEvent();
     const siteKey = `${event.pubkey}:`;
     const pathKey = `${event.pubkey}::/index.html`;
-    const state = createRequestLogState();
 
     try {
       await cacheManifestEvent(event);
 
-      const result = await getNsiteBlob(
-        event.pubkey,
-        "/index.html",
-        [],
-        "",
-        createRequestLog(state),
-      );
+      const result = await getNsiteBlob(event.pubkey, "/index.html", [], "");
 
       assertEquals(result.kind, "hit");
-      assertEquals(state.fields.manifest, shortId(event.id, 12));
-      assertFalse("manifestAge" in state.fields);
+      if (result.kind === "hit") {
+        assertEquals(result.event.manifestId, event.id);
+        assertEquals(
+          shortId(result.event.manifestId || "", 12),
+          shortId(event.id, 12),
+        );
+      }
     } finally {
       pathBlobs.delete(pathKey);
       manifestPaths.delete(siteKey);
