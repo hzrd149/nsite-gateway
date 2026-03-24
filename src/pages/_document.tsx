@@ -1,7 +1,5 @@
 import type { Child, FC } from "@hono/hono/jsx";
 
-const baseStyles = Deno.readTextFileSync("public/styles.css");
-
 type DocumentProps = {
   title: string;
   children: Child;
@@ -14,14 +12,10 @@ export const Document: FC<DocumentProps> = ({ title, children }) => {
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>{title}</title>
-        <style
-          dangerouslySetInnerHTML={{
-            __html: baseStyles + "\nmain { padding-top: 80px; }",
-          }}
-        />
+        <link rel="stylesheet" href="/styles.css" />
       </head>
       <body>
-        <main>{children}</main>
+        <main class="padded">{children}</main>
       </body>
     </html>
   );

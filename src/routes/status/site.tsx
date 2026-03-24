@@ -15,7 +15,6 @@ import {
 } from "../../helpers/site-manifest.ts";
 import { getBlobServer } from "../../services/cache.ts";
 import { getManifest, getUserBlossomServers } from "../../services/nostr.ts";
-import { baseCss, siteDetailCss } from "./styles.ts";
 
 type SitePathEntry = {
   path: string;
@@ -114,10 +113,10 @@ const SiteDetailPage: FC<{
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>{props.title || props.hostname || npub} — site status</title>
-        <style dangerouslySetInnerHTML={{ __html: siteDetailCss }} />
+        <link rel="stylesheet" href="/styles.css" />
       </head>
       <body>
-        <main>
+        <main class="wide">
           <header>
             <h1>
               {props.href ? (
@@ -244,7 +243,7 @@ const SiteDetailPage: FC<{
           <section>
             <details>
               <summary>
-                <h2 style="display:inline">Raw manifest event</h2>
+                <h2>Raw manifest event</h2>
               </summary>
               <pre class="raw-json">{props.rawManifest}</pre>
             </details>
@@ -261,10 +260,10 @@ const SiteNotFoundPage: FC<{ address: string }> = ({ address }) => (
       <meta charset="utf-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1" />
       <title>Site not found — status</title>
-      <style dangerouslySetInnerHTML={{ __html: baseCss }} />
+      <link rel="stylesheet" href="/styles.css" />
     </head>
     <body>
-      <main>
+      <main class="wide">
         <header>
           <h1>Site not found</h1>
           <p class="meta">
@@ -285,10 +284,10 @@ const InvalidAddressPage: FC<{ address?: string }> = ({ address }) => (
       <meta charset="utf-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1" />
       <title>Invalid address — status</title>
-      <style dangerouslySetInnerHTML={{ __html: baseCss }} />
+      <link rel="stylesheet" href="/styles.css" />
     </head>
     <body>
-      <main>
+      <main class="wide">
         <header>
           <h1>Invalid address</h1>
           <p class="meta">

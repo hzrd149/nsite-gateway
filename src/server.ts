@@ -1,6 +1,6 @@
 import { Hono } from "@hono/hono";
 import { cors } from "@hono/hono/cors";
-import { handleLocalRouter } from "./local-router.ts";
+import { handleLocalRouter } from "./routes/home.tsx";
 import { handleSiteRequest } from "./routes/site.tsx";
 import { resolvePubkeyFromHostname } from "./services/dns.ts";
 

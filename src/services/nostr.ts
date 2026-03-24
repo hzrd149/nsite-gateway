@@ -3,20 +3,22 @@ import {
   BLOSSOM_SERVER_LIST_KIND,
   getBlossomServersFromList,
 } from "applesauce-common/helpers";
-import { EventStore, lastValueFrom } from "applesauce-core";
+import { EventStore, firstValueFrom, lastValueFrom } from "applesauce-core";
 import {
   type AddressPointer,
   getInboxes,
   getOutboxes,
+  getProfileContent,
   getReplaceableAddressFromPointer,
   kinds,
   type NostrEvent,
   persistEventsToCache,
+  ProfileContent,
   relaySet,
 } from "applesauce-core/helpers";
 import { createEventLoaderForStore } from "applesauce-loaders/loaders";
 import { RelayPool } from "applesauce-relay";
-import { takeUntil, timer } from "rxjs";
+import { map, takeUntil, timer } from "rxjs";
 import { CACHE_RELAYS, LOOKUP_RELAYS, NOSTR_RELAYS } from "../env.ts";
 import logger from "../helpers/debug.ts";
 import { formatAgeFromUnix } from "../helpers/format.ts";
@@ -29,7 +31,7 @@ import {
 
 const log = logger.extend("nostr");
 
-const pool = new RelayPool();
+export const pool = new RelayPool();
 
 export const eventStore = new EventStore();
 
@@ -79,6 +81,22 @@ if (CACHE_RELAYS) {
       events.map((event) => pool.publish(CACHE_RELAYS!, event)),
     );
   });
+}
+
+/** Gets a user's profile */
+export async function getUserProfile(
+  pubkey: string,
+  timeout = 5_000,
+): Promise<ProfileContent | undefined> {
+  const cached = eventStore.getReplaceable(kinds.Metadata, pubkey);
+  if (cached) return getProfileContent(cached);
+
+  const user = castUser(pubkey, eventStore);
+
+  // Using first value because loading profiles is not critical and needs to be fast
+  return await firstValueFrom(
+    user.profile$.metadata.pipe(takeUntil(timer(timeout))),
+  );
 }
 
 /** Gets a user's outbox relays */

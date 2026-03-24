@@ -1,12 +1,21 @@
 import { Hono } from "@hono/hono";
 import { serveStatic } from "@hono/hono/deno";
-import statusRouter from "./routes/status/index.ts";
+import { homeRoute } from "../pages/home.tsx";
+import statusRouter from "./status/index.ts";
 
 const router = new Hono();
 const servePublicFile = serveStatic({
   root: "./public",
   rewriteRequestPath: (path) => path === "/" ? "/index.html" : path,
 });
+
+let hasPublicIndex = false;
+try {
+  const stat = await Deno.stat("public/index.html");
+  hasPublicIndex = stat.isFile;
+} catch {
+  hasPublicIndex = false;
+}
 
 router.onError((error) => {
   return new Response(
@@ -16,6 +25,11 @@ router.onError((error) => {
 });
 
 router.route("/status", statusRouter);
+
+router.on(["GET", "HEAD"], "/", async (c, next) => {
+  if (hasPublicIndex) return await servePublicFile(c, next);
+  return homeRoute(c);
+});
 
 router.use("*", async (c, next) => {
   if (c.req.method !== "GET" && c.req.method !== "HEAD") return next();
