@@ -32,6 +32,11 @@ import * as cache from "../services/cache.ts";
 
 const log = logger.extend("nostr");
 
+const SITE_MANIFEST_KINDS = [
+  ROOT_SITE_MANIFEST_KIND,
+  NAMED_SITE_MANIFEST_KIND,
+];
+
 export const pool = new RelayPool();
 
 export const eventStore = new EventStore();
@@ -72,6 +77,45 @@ export const eventLoader = createEventLoaderForStore(eventStore, pool, {
   lookupRelays: LOOKUP_RELAYS,
   extraRelays: relaySet(NOSTR_RELAYS),
 });
+
+function getLatestSiteManifestCreatedAt(): number | undefined {
+  const manifests = eventStore.getTimeline({ kinds: SITE_MANIFEST_KINDS });
+
+  if (manifests.length === 0) return undefined;
+
+  let latest = manifests[0].created_at;
+
+  for (let i = 1; i < manifests.length; i++) {
+    if (manifests[i].created_at > latest) latest = manifests[i].created_at;
+  }
+
+  return latest;
+}
+
+export async function syncSiteManifests(
+  relays = NOSTR_RELAYS,
+): Promise<number> {
+  if (!relays || relays.length === 0) return 0;
+
+  const latestCreatedAt = getLatestSiteManifestCreatedAt();
+  const since = latestCreatedAt === undefined ? undefined : latestCreatedAt + 1;
+
+  return await new Promise((resolve, reject) => {
+    let found = 0;
+
+    pool.request(relays, {
+      kinds: SITE_MANIFEST_KINDS,
+      ...(since === undefined ? {} : { since }),
+    }).subscribe({
+      next: (event) => {
+        const insert = eventStore.add(event);
+        if (insert && insert === event) found++;
+      },
+      error: reject,
+      complete: () => resolve(found),
+    });
+  });
+}
 
 if (CACHE_RELAYS) {
   log(`Using cache relays: ${CACHE_RELAYS.join(", ")}`);

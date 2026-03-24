@@ -1,5 +1,11 @@
 # nsite-gateway
 
+## 3.1.0
+
+### Minor Changes
+
+- Periodically sync site manifests from NOSTR_RELAYS
+
 ## 3.0.0
 
 ### Major Changes

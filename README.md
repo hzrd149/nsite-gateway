@@ -49,9 +49,10 @@ deno task dev
 The Deno tasks already include the required flags (`--unstable-kv`,
 `--env-file=.env`, and the necessary permission flags).
 
-If `NOSTR_RELAYS` is set, the gateway will also bulk-fetch all known site
-manifests (kinds `15128` and `35128`) from those relays at startup,
-pre-populating the in-memory event store.
+If `NOSTR_RELAYS` is set, the gateway will bulk-fetch all known site manifests
+(kinds `15128` and `35128`) from those relays at startup, pre-populating the
+in-memory event store, and then re-check those relays every 10 minutes for newer
+manifest events.
 
 ## Cache Backends
 
