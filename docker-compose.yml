@@ -5,8 +5,7 @@ services:
     restart: unless-stopped
     environment:
       LOOKUP_RELAYS: wss://user.kindpag.es,wss://purplepag.es
-      CACHE_BACKEND: kv
-      KV_PATH: /cache/nsite-gateway.kv
+      CACHE_PATH: /cache/nsite-gateway.kv
       BLOSSOM_PROXY: http://blossom-cache:24242
     volumes:
       - nsite-cache:/cache

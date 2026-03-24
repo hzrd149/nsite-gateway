@@ -1,0 +1,54 @@
+:root {
+  color-scheme: light;
+  --bg: #f6f4ec;
+  --fg: #1f2328;
+  --muted: #5a6472;
+  --line: #d7d1c4;
+  --accent: #0f6a5b;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font:
+    14px/1.5 "SFMono-Regular",
+    "Cascadia Mono",
+    "Liberation Mono",
+    Menlo,
+    monospace;
+}
+main {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 24px 16px 40px;
+}
+h1 {
+  margin: 0 0 8px;
+  font-size: 20px;
+}
+p {
+  margin: 0 0 12px;
+}
+.muted {
+  color: var(--muted);
+}
+hr {
+  border: none;
+  border-top: 1px solid var(--line);
+  margin: 20px 0;
+}
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+code {
+  background: rgba(0, 0, 0, 0.06);
+  padding: 2px 5px;
+  border-radius: 3px;
+}

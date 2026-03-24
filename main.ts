@@ -1,36 +1,28 @@
 #!/usr/bin/env -S deno run --unstable-kv --allow-env --allow-net --allow-read --allow-write
 
-import app from "./src/server.ts";
-import { closeCache, initCache } from "./src/services/cache.ts";
 import {
   BLOSSOM_PROXY,
   BLOSSOM_SERVERS,
   CACHE_RELAYS,
   HOST,
   LOOKUP_RELAYS,
+  NOSTR_RELAYS,
   NSITE_HOST,
   NSITE_PORT,
-} from "./src/helpers/env.ts";
-import pool from "./src/services/nostr.ts";
+} from "./src/env.ts";
+import app from "./src/server.ts";
+import { onShutdown } from "./src/helpers/shutdown.ts";
 
 function formatList(values: string[] | undefined, empty = "none") {
   return values && values.length > 0 ? values.join(", ") : empty;
 }
 
-function logStartupStatus() {
-  console.log(`Starting nsite gateway on http://${HOST}`);
-  console.log(
-    "routing=nsite via canonical hostnames or CNAME aliases | local via public folder and app routes",
-  );
-  console.log(`lookup relays=${formatList(LOOKUP_RELAYS)}`);
-  console.log(`cache relays=${formatList(CACHE_RELAYS)}`);
-  console.log(`blossom servers=${formatList(BLOSSOM_SERVERS)}`);
-  console.log(`blossom proxy=${BLOSSOM_PROXY || "none"}`);
-}
-
-await initCache();
-
-logStartupStatus();
+console.log(`Starting nsite gateway on http://${HOST}`);
+console.log(`lookup relays: ${formatList(LOOKUP_RELAYS)}`);
+console.log(`cache relays: ${formatList(CACHE_RELAYS)}`);
+console.log(`nostr relays: ${formatList(NOSTR_RELAYS)}`);
+console.log(`blossom servers: ${formatList(BLOSSOM_SERVERS)}`);
+console.log(`blossom proxy: ${BLOSSOM_PROXY || "none"}`);
 
 const server = Deno.serve(
   {
@@ -43,12 +35,7 @@ const server = Deno.serve(
   app.fetch,
 );
 
-async function shutdown() {
-  console.log("Shutting down...");
-  for (const [, relay] of pool.relays) relay.close();
-  await closeCache();
+onShutdown(async () => {
+  console.log("nsite gateway shutting down...");
   await server.shutdown();
-}
-
-Deno.addSignalListener("SIGINT", shutdown);
-Deno.addSignalListener("SIGTERM", shutdown);
+});

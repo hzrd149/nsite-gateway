@@ -34,13 +34,10 @@ The gateway defaults to a bounded in-memory metadata cache.
 To enable persistent local caching with Deno KV, set:
 
 ```sh
-CACHE_BACKEND="kv"
-KV_PATH="./data/cache.kv"
+CACHE_PATH="./data/cache"
 ```
 
-If `KV_PATH` is omitted, Deno will use its default local KV location.
-
-`CACHE_MAX_ENTRIES` only applies to the in-memory cache backend.
+If `CACHE_PATH` is omitted, Deno will use its default local KV location.
 
 ## Running directly from JSR
 

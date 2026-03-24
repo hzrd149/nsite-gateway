@@ -3,6 +3,8 @@
   "version": "2.1.0",
   "exports": "./main.ts",
   "compilerOptions": {
+    "jsx": "precompile",
+    "jsxImportSource": "@hono/hono/jsx",
     "lib": ["dom", "dom.iterable", "esnext", "deno.ns", "deno.unstable"]
   },
   "tasks": {
@@ -12,14 +14,14 @@
     "fmt": "deno fmt"
   },
   "imports": {
-    "@hono/hono": "jsr:@hono/hono@^4.12.7",
+    "@hono/hono": "jsr:@hono/hono@^4.12.9",
     "@std/media-types": "jsr:@std/media-types@^1.1.0",
     "@std/path": "jsr:@std/path@^1.1.4",
-    "applesauce-core": "npm:applesauce-core@^5",
-    "applesauce-loaders": "npm:applesauce-loaders@^5",
-    "applesauce-relay": "npm:applesauce-relay@^5",
+    "applesauce-common": "npm:applesauce-common@next",
+    "applesauce-core": "npm:applesauce-core@next",
+    "applesauce-loaders": "npm:applesauce-loaders@next",
+    "applesauce-relay": "npm:applesauce-relay@next",
     "debug": "npm:debug@^4.4.3",
-    "nostr-tools": "npm:nostr-tools@^2.19.4",
     "rxjs": "npm:rxjs@^7.8.2",
     "xbytes": "npm:xbytes@^1.9.1"
   }
