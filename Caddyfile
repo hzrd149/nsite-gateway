@@ -1,0 +1,8 @@
+#{
+#    email your-email@example.com
+#}
+
+# This will match example.com and all its subdomains (*.example.com)
+example.com, *.example.com {
+    reverse_proxy nsite:3000
+}

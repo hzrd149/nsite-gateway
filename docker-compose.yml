@@ -5,10 +5,13 @@ services:
     restart: unless-stopped
     environment:
       LOOKUP_RELAYS: wss://user.kindpag.es,wss://purplepag.es
+      NOSTR_RELAYS: wss://relay.damus.io,wss://nos.lol,wss://nsite.run,wss://relay.primal.net
       CACHE_PATH: /cache/nsite-gateway.kv
-      BLOSSOM_PROXY: http://blossom-cache:24242
+      BLOSSOM_PROXY: http://blossom:24242
     volumes:
-      - nsite-cache:/cache
+      - nsite_cache:/cache
+    ports:
+      - 3000:3000
 
   caddy:
     image: caddy:alpine
@@ -23,14 +26,14 @@ services:
     depends_on:
       - nsite
 
-  blossom-cache:
+  blossom:
     image: ghcr.io/hzrd149/flower-cache:latest
     restart: unless-stopped
     volumes:
-      - blossom-cache:/cache
+      - blossom_cache:/cache
 
 volumes:
-  nsite-cache:
+  nsite_cache:
   caddy_data:
   caddy_config:
-  blossom-cache:
+  blossom_cache:
