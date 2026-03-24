@@ -1,11 +1,14 @@
-import { MAX_BLOSSOM_SERVERS, MAX_FILE_SIZE } from "../helpers/env.ts";
+import { MAX_FILE_SIZE } from "../env.ts";
 import logger from "../helpers/debug.ts";
-import type { RequestLog } from "../helpers/request-log.ts";
-import { shortId } from "../helpers/request-log.ts";
-import { blobURLs } from "./cache.ts";
+import {
+  clearBlobServer,
+  getBlobServer,
+  getBlobServers,
+  setBlobServer,
+  setBlobServers,
+} from "./cache.ts";
 
 const log = logger.extend("blossom");
-export const BLOB_SOURCE_HEADER = "X-Blob-Source";
 
 function extractDomain(serverUrl: string): string {
   try {
@@ -27,7 +30,7 @@ export async function findBlobURLs(
   servers: string[],
   options?: { pubkey?: string; blossomProxy?: string },
 ): Promise<string[]> {
-  const cached = await blobURLs.get(sha256);
+  const cached = await getBlobServers(sha256);
   if (cached) return cached;
 
   const { pubkey, blossomProxy } = options || {};
@@ -57,14 +60,13 @@ export async function findBlobURLs(
   }
 
   for (const server of servers) {
-    if (ordered.length >= MAX_BLOSSOM_SERVERS) break;
     const url = new URL(sha256, server).toString();
     if (seen.has(url)) continue;
     seen.add(url);
     ordered.push(url);
   }
 
-  await blobURLs.set(sha256, ordered);
+  await setBlobServers(sha256, ordered);
   return ordered;
 }
 
@@ -100,25 +102,24 @@ export async function streamBlob(
     headers?: HeadersInit;
     pubkey?: string;
     blossomProxy?: string;
-    requestLog?: RequestLog;
   },
 ): Promise<Response | undefined> {
   if (servers.length === 0) return undefined;
 
   const requestLog = log.extend(sha256.slice(0, 6));
-  const requestState = init?.requestLog;
   const urls = await findBlobURLs(sha256, servers, {
     pubkey: init?.pubkey,
     blossomProxy: init?.blossomProxy,
   });
   if (urls.length === 0) return undefined;
 
-  let lastFailure: string | undefined;
+  const cached = await getBlobServer(sha256);
+  const ordered = cached ? [cached, ...urls.filter((u) => u !== cached)] : urls;
 
-  for (const urlString of urls) {
+  for (const server of ordered) {
     try {
       const controller = new AbortController();
-      const response = await fetch(urlString, {
+      const response = await fetch(server, {
         method: init?.method ?? "GET",
         headers: init?.headers,
         signal: AbortSignal.any([
@@ -129,55 +130,49 @@ export async function streamBlob(
 
       const length = response.headers.get("content-length");
       if (length && Number(length) > MAX_FILE_SIZE) {
-        requestLog(`Rejected ${urlString}: file too large (${length})`);
-        lastFailure = "file-too-large";
+        requestLog(`Rejected ${server}: file too large (${length})`);
         controller.abort();
         continue;
       }
 
       if (response.status >= 200 && response.status < 300) {
+        // Set the server as the current live server for the blob
+        setBlobServer(sha256, server).catch(() => {});
+
         if (!response.body || init?.method === "HEAD") {
-          const headers = new Headers(response.headers);
-          headers.set(BLOB_SOURCE_HEADER, urlString);
           return new Response(null, {
             status: response.status,
             statusText: response.statusText,
-            headers,
+            headers: response.headers,
           });
         }
 
+        // Limit the body size to the maximum allowed size
         const body = limitBodySize(response.body, MAX_FILE_SIZE, () => {
           requestLog(
-            `Aborted ${urlString}: stream exceeded ${MAX_FILE_SIZE} bytes`,
+            `Aborted ${server}: stream exceeded ${MAX_FILE_SIZE} bytes`,
           );
-          lastFailure = "stream-too-large";
           controller.abort();
         });
 
-        const headers = new Headers(response.headers);
-        headers.set(BLOB_SOURCE_HEADER, urlString);
-
+        // Return new response for the blob
         return new Response(body, {
           status: response.status,
           statusText: response.statusText,
-          headers,
+          headers: response.headers,
         });
       }
     } catch (error) {
-      lastFailure = error instanceof Error ? error.message : String(error);
       requestLog(
-        `Failed ${urlString}: ${
+        `Failed ${server}: ${
           error instanceof Error ? error.message : String(error)
         }`,
       );
     }
-  }
 
-  requestState?.error("blossom fetch failed", {
-    reason: lastFailure || "no-upstream-response",
-    sha: shortId(sha256, 12),
-    tried: urls.length,
-  });
+    // No server worked, clear cached server
+    clearBlobServer(sha256).catch(() => {});
+  }
 
   return undefined;
 }

@@ -1,63 +1,34 @@
 #!/usr/bin/env -S deno run --unstable-kv --allow-env --allow-net --allow-read --allow-write
 
-import { nip19 } from "nostr-tools";
-import { watchLiveEvents } from "./src/live.ts";
-import app from "./src/server.ts";
-import { closeCache, initCache } from "./src/services/cache.ts";
 import {
   BLOSSOM_PROXY,
   BLOSSOM_SERVERS,
   CACHE_RELAYS,
   HOST,
   LOOKUP_RELAYS,
-  NSITE_HOMEPAGE,
-  NSITE_HOMEPAGE_DIR,
+  NOSTR_RELAYS,
   NSITE_HOST,
   NSITE_PORT,
-  PUBLIC_DOMAIN,
-  SUBSCRIPTION_RELAYS,
-} from "./src/helpers/env.ts";
-import pool from "./src/services/nostr.ts";
+} from "./src/env.ts";
+import app from "./src/server.ts";
+import { onShutdown } from "./src/helpers/shutdown.ts";
+import { PollOptionsSymbol } from "applesauce-common/helpers";
+import { eventStore, pool } from "./src/services/nostr.ts";
+import {
+  NAMED_SITE_MANIFEST_KIND,
+  ROOT_SITE_MANIFEST_KIND,
+} from "./src/helpers/site-manifest.ts";
 
 function formatList(values: string[] | undefined, empty = "none") {
   return values && values.length > 0 ? values.join(", ") : empty;
 }
 
-function describeHomepage() {
-  const parts = [
-    `homepage ref=${NSITE_HOMEPAGE}`,
-    `static dir=${NSITE_HOMEPAGE_DIR}`,
-    `public domain=${PUBLIC_DOMAIN || "any unresolved host"}`,
-  ];
-
-  try {
-    const parsed = nip19.decode(NSITE_HOMEPAGE);
-    if (parsed.type === "npub") parts.push(`homepage pubkey=${parsed.data}`);
-    if (parsed.type === "nprofile") {
-      parts.push(`homepage pubkey=${parsed.data.pubkey}`);
-    }
-  } catch {
-    parts.push("homepage pubkey=unresolved");
-  }
-
-  return parts.join(" | ");
-}
-
-function logStartupStatus() {
-  console.log(`Starting nsite gateway on http://${HOST}`);
-  console.log(describeHomepage());
-  console.log(`lookup relays=${formatList(LOOKUP_RELAYS)}`);
-  console.log(`subscription relays=${formatList(SUBSCRIPTION_RELAYS)}`);
-  console.log(`cache relays=${formatList(CACHE_RELAYS)}`);
-  console.log(`blossom servers=${formatList(BLOSSOM_SERVERS)}`);
-  console.log(`blossom proxy=${BLOSSOM_PROXY || "none"}`);
-}
-
-await initCache();
-
-logStartupStatus();
-
-const liveEvents = watchLiveEvents();
+console.log(`Starting nsite gateway on http://${HOST}`);
+console.log(`lookup relays: ${formatList(LOOKUP_RELAYS)}`);
+console.log(`cache relays: ${formatList(CACHE_RELAYS)}`);
+console.log(`nostr relays: ${formatList(NOSTR_RELAYS)}`);
+console.log(`blossom servers: ${formatList(BLOSSOM_SERVERS)}`);
+console.log(`blossom proxy: ${BLOSSOM_PROXY || "none"}`);
 
 const server = Deno.serve(
   {
@@ -70,14 +41,26 @@ const server = Deno.serve(
   app.fetch,
 );
 
-async function shutdown() {
-  console.log("Shutting down...");
-  liveEvents?.unsubscribe();
-  for (const [, relay] of pool.relays) relay.close();
-  await closeCache();
-  await server.shutdown();
-  Deno.exit(0);
+// Hydrate from nostr relays when set
+if (NOSTR_RELAYS && NOSTR_RELAYS.length > 0) {
+  console.log("Hydrating from nostr relays...", NOSTR_RELAYS);
+
+  let found = 0;
+  pool.request(NOSTR_RELAYS, {
+    kinds: [ROOT_SITE_MANIFEST_KIND, NAMED_SITE_MANIFEST_KIND],
+  }).subscribe({
+    next: (event) => {
+      const insert = eventStore.add(event);
+
+      // If not null and new event
+      if (insert && insert === event) found++;
+    },
+    complete: () =>
+      console.log(`Found ${found} site manifest events from nostr relays`),
+  });
 }
 
-Deno.addSignalListener("SIGINT", shutdown);
-Deno.addSignalListener("SIGTERM", shutdown);
+onShutdown(async () => {
+  console.log("nsite gateway shutting down...");
+  await server.shutdown();
+});

@@ -1,201 +1,136 @@
-import type { NostrEvent } from "nostr-tools";
-import type { ParsedEvent } from "../helpers/events.ts";
 import logger from "../helpers/debug.ts";
-import {
-  CACHE_BACKEND,
-  CACHE_MAX_ENTRIES,
-  CACHE_TIME,
-  KV_PATH,
-} from "../helpers/env.ts";
-
-type CachedPathBlob = ParsedEvent & {
-  servers?: string[];
-  source?: "manifest";
-  manifestId?: string;
-};
-
-type CacheStore<T> = {
-  get(key: string): Promise<T | undefined>;
-  set(key: string, value: T): Promise<void>;
-  delete(key: string): void;
-};
+import { CACHE_PATH, CACHE_TIME } from "../env.ts";
+import { onShutdown } from "../helpers/shutdown.ts";
+import type { AddressPointer, ProfileContent } from "applesauce-core/helpers";
+import { dirname } from "@std/path/posix";
 
 const log = logger.extend("cache");
 
-class MemoryCache<T> implements CacheStore<T> {
-  #ttlMs: number;
-  #maxEntries: number;
-  #store = new Map<string, { value: T; expiresAt: number }>();
+// Ensure the cache directory exists
+log(`Opening cache KV store at ${CACHE_PATH}`);
+if (CACHE_PATH) await Deno.mkdir(dirname(CACHE_PATH), { recursive: true });
 
-  constructor(ttlMs: number, maxEntries: number) {
-    this.#ttlMs = ttlMs;
-    this.#maxEntries = maxEntries;
-  }
+/** Singleton KV store for all cache items */
+const cache = await Deno.openKv(CACHE_PATH);
 
-  #sweepExpired() {
-    const now = Date.now();
-    for (const [key, entry] of this.#store) {
-      if (entry.expiresAt <= now) this.#store.delete(key);
-    }
-  }
+// Close the cache on shutdown
+onShutdown(async () => {
+  log("Closing cache KV store");
 
-  #evictOldest() {
-    while (this.#store.size > this.#maxEntries) {
-      const oldestKey = this.#store.keys().next().value;
-      if (!oldestKey) break;
-      this.#store.delete(oldestKey);
-    }
+  try {
+    await cache.close();
+  } catch (err) {
+    log("Got error while closing cache KV store: ", err);
   }
+});
 
-  async get(key: string): Promise<T | undefined> {
-    const entry = this.#store.get(key);
-    if (!entry) return undefined;
-    if (entry.expiresAt <= Date.now()) {
-      this.#store.delete(key);
-      return undefined;
-    }
-    return entry.value;
-  }
+/** Gets the resolved nsite pointer for a domain */
+export async function getDNSPubkey(
+  domain: string,
+) {
+  const entry = await cache.get<AddressPointer>([
+    "dns",
+    domain,
+  ]);
 
-  async set(key: string, value: T): Promise<void> {
-    this.#sweepExpired();
-    if (this.#store.has(key)) this.#store.delete(key);
-    this.#store.set(key, { value, expiresAt: Date.now() + this.#ttlMs });
-    this.#evictOldest();
-  }
-
-  delete(key: string): void {
-    this.#store.delete(key);
-  }
+  return entry.value;
 }
 
-let kvPromise: Promise<Deno.Kv | undefined> | undefined;
-
-async function getKv(): Promise<Deno.Kv | undefined> {
-  if (CACHE_BACKEND !== "kv") return undefined;
-  if (!kvPromise) {
-    kvPromise = Deno.openKv(KV_PATH).then((kv) => {
-      log(
-        KV_PATH
-          ? `Using Deno KV cache at ${KV_PATH}`
-          : "Using default Deno KV cache location",
-      );
-      return kv;
-    });
-  }
-  return await kvPromise;
+/** Sets the resolved nsite pointer for a domain */
+export async function setDNSPubkey(domain: string, pointer: AddressPointer) {
+  return await cache.set(
+    [
+      "dns",
+      domain,
+    ],
+    pointer,
+    { expireIn: CACHE_TIME * 1000 },
+  );
 }
 
-class KvCache<T> implements CacheStore<T> {
-  #namespace: string;
-  #ttlMs: number;
+/** Sets the current blossom used for a blob */
+export async function getBlobServer(blob: string) {
+  const entry = await cache.get<string>([
+    "blob-server",
+    blob,
+  ]);
 
-  constructor(namespace: string, ttlMs: number) {
-    this.#namespace = namespace;
-    this.#ttlMs = ttlMs;
-  }
-
-  #key(key: string): Deno.KvKey {
-    return ["cache", this.#namespace, key];
-  }
-
-  async get(key: string): Promise<T | undefined> {
-    const kv = await getKv();
-    if (!kv) return undefined;
-    const entry = await kv.get<T>(this.#key(key));
-    return entry.value ?? undefined;
-  }
-
-  async set(key: string, value: T): Promise<void> {
-    const kv = await getKv();
-    if (!kv) return;
-    await kv.set(this.#key(key), value, { expireIn: this.#ttlMs });
-  }
-
-  delete(key: string): void {
-    void getKv().then((kv) => {
-      if (!kv) return;
-      return kv.delete(this.#key(key));
-    }).catch((error) => {
-      log(
-        `Failed to delete cache key ${this.#namespace}:${key}: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-    });
-  }
+  return entry.value;
 }
 
-class Cache<T> {
-  #memory: MemoryCache<T>;
-  #kv: KvCache<T>;
-
-  constructor(namespace: string, ttlMs: number, maxEntries: number) {
-    this.#memory = new MemoryCache<T>(ttlMs, maxEntries);
-    this.#kv = new KvCache<T>(namespace, ttlMs);
-  }
-
-  async get(key: string): Promise<T | undefined> {
-    if (CACHE_BACKEND === "kv") return await this.#kv.get(key);
-    return await this.#memory.get(key);
-  }
-
-  async set(key: string, value: T): Promise<void> {
-    if (CACHE_BACKEND === "kv") return await this.#kv.set(key, value);
-    return await this.#memory.set(key, value);
-  }
-
-  delete(key: string): void {
-    if (CACHE_BACKEND === "kv") return this.#kv.delete(key);
-    return this.#memory.delete(key);
-  }
+/** Sets the current blossom used for a blob */
+export async function setBlobServer(blob: string, server: string) {
+  return await cache.set(
+    [
+      "blob-server",
+      blob,
+    ],
+    server,
+    { expireIn: CACHE_TIME * 1000 },
+  );
 }
 
-export async function closeCache(): Promise<void> {
-  const kv = await kvPromise;
-  kv?.close();
+/** Clears the current blossom used for a blob */
+export async function clearBlobServer(blob: string) {
+  return await cache.delete([
+    "blob-server",
+    blob,
+  ]);
 }
 
-export async function initCache(): Promise<void> {
-  await getKv();
+/** Gets the servers that should be used for streaming a blob */
+export async function getBlobServers(blob: string) {
+  const entry = await cache.get<string[]>([
+    "blob-servers",
+    blob,
+  ]);
+
+  return entry.value;
 }
 
-const ttlMs = CACHE_TIME * 1000;
-
-if (CACHE_BACKEND === "in-memory") {
-  log(`Using in-memory cache (${CACHE_MAX_ENTRIES} max entries)`);
+/** Sets the servers that should be used for streaming a blob */
+export async function setBlobServers(blob: string, servers: string[]) {
+  return await cache.set(
+    [
+      "blob-servers",
+      blob,
+    ],
+    servers,
+    { expireIn: CACHE_TIME * 1000 },
+  );
 }
 
-export const pubkeyDomains = new Cache<
-  { pubkey: string; identifier: string } | undefined
->("domains", ttlMs, CACHE_MAX_ENTRIES);
-export const pubkeyServers = new Cache<string[] | undefined>(
-  "servers",
-  ttlMs,
-  CACHE_MAX_ENTRIES,
-);
-export const pubkeyRelays = new Cache<string[] | undefined>(
-  "relays",
-  ttlMs,
-  CACHE_MAX_ENTRIES,
-);
-export const pathBlobs = new Cache<CachedPathBlob | undefined>(
-  "paths",
-  ttlMs,
-  CACHE_MAX_ENTRIES,
-);
-export const manifestPaths = new Cache<string[] | undefined>(
-  "manifest-paths",
-  ttlMs,
-  CACHE_MAX_ENTRIES,
-);
-export const siteManifests = new Cache<NostrEvent | undefined>(
-  "manifests",
-  ttlMs,
-  CACHE_MAX_ENTRIES,
-);
-export const blobURLs = new Cache<string[] | undefined>(
-  "blobs",
-  ttlMs,
-  CACHE_MAX_ENTRIES,
-);
+/** Clears the cached servers for a blob */
+export async function clearBlobServers(blob: string) {
+  return await cache.delete([
+    "blob-servers",
+    blob,
+  ]);
+}
+
+/** Gets a user's profile */
+export async function getUserProfile(
+  pubkey: string,
+): Promise<ProfileContent | null | 404> {
+  const entry = await cache.get<ProfileContent | 404>([
+    "user-profile",
+    pubkey,
+  ]);
+
+  return entry.value;
+}
+
+/** Sets a user's profile */
+export async function setUserProfile(
+  pubkey: string,
+  profile: ProfileContent | 404,
+) {
+  return await cache.set(
+    [
+      "user-profile",
+      pubkey,
+    ],
+    profile,
+    { expireIn: CACHE_TIME * 1000 },
+  );
+}

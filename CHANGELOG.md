@@ -1,5 +1,15 @@
 # nsite-gateway
 
+## 3.0.0
+
+### Major Changes
+
+- Rewrite again, this time manually for less bugs and better performance
+- Removed support for legacy `<name>.<npub>.gateway.net` subdomains
+- Removed support for resolving TXT DNS records (unused)
+- Removed support for hosting an nsite as the homepage
+- Added status page for debugging
+
 ## 2.1.0
 
 ### Minor Changes
