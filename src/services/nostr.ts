@@ -28,6 +28,7 @@ import {
   NAMED_SITE_MANIFEST_KIND,
   ROOT_SITE_MANIFEST_KIND,
 } from "../helpers/site-manifest.ts";
+import * as cache from "../services/cache.ts";
 
 const log = logger.extend("nostr");
 
@@ -88,15 +89,26 @@ export async function getUserProfile(
   pubkey: string,
   timeout = 5_000,
 ): Promise<ProfileContent | undefined> {
+  // check in-memory cache
   const cached = eventStore.getReplaceable(kinds.Metadata, pubkey);
   if (cached) return getProfileContent(cached);
 
-  const user = castUser(pubkey, eventStore);
+  // Check deno kv cache
+  const lvl2Cache = await cache.getUserProfile(pubkey);
+  // Return if found, or explicitly null
+  if (lvl2Cache) return lvl2Cache === 404 ? undefined : lvl2Cache;
 
   // Using first value because loading profiles is not critical and needs to be fast
-  return await firstValueFrom(
+  const user = castUser(pubkey, eventStore);
+  const profile = await firstValueFrom(
     user.profile$.metadata.pipe(takeUntil(timer(timeout))),
+    { defaultValue: undefined },
   );
+
+  // Set deno kv cache
+  if (profile) cache.setUserProfile(pubkey, profile ?? null).catch(() => {});
+
+  return profile;
 }
 
 /** Gets a user's outbox relays */

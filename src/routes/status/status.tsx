@@ -2,7 +2,7 @@ import type { Context } from "@hono/hono";
 import { html } from "@hono/hono/html";
 import { formatNsiteSubdomain } from "../../helpers/nsite-host.ts";
 import { getManifestPaths, NAMED_SITE_MANIFEST_KIND, ROOT_SITE_MANIFEST_KIND } from "../../helpers/site-manifest.ts";
-import { eventStore } from "../../services/nostr.ts";
+import { eventStore, getUserProfile } from "../../services/nostr.ts";
 import { npubEncode } from "applesauce-core/helpers";
 import { StatusPage, type StatusSite } from "../../pages/status.tsx";
 
@@ -47,9 +47,23 @@ function getStatusSites(host: string, protocol: string): StatusSite[] {
   });
 }
 
-export function statusRoute(c: Context): Response | Promise<Response> {
+export async function statusRoute(c: Context): Promise<Response> {
   const url = new URL(c.req.url);
   const sites = getStatusSites(url.host, url.protocol);
+
+  const uniquePubkeys = [...new Set(sites.map((s) => s.pubkey))];
+  const profileResults = await Promise.all(
+    uniquePubkeys.map(async (pubkey) => [pubkey, await getUserProfile(pubkey, 5_000)] as const),
+  );
+  const profiles = new Map(profileResults);
+
+  for (const site of sites) {
+    const profile = profiles.get(site.pubkey);
+    if (profile) {
+      site.authorName = profile.display_name || profile.name;
+    }
+  }
+
   return c.html(html` <!DOCTYPE html>${(<StatusPage sites={sites} host={url.host} />)} `, 200, {
     "Cache-Control": "no-store",
   });

@@ -15,7 +15,13 @@ export const Document: FC<DocumentProps> = ({ title, children }) => {
         <link rel="stylesheet" href="/styles.css" />
       </head>
       <body>
-        <main class="padded">{children}</main>
+        <main>
+          <header>
+            <h1>{title}</h1>
+            <a href="/">&larr; back to gateway</a>
+          </header>
+          {children}
+        </main>
       </body>
     </html>
   );

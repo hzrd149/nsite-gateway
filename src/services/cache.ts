@@ -1,7 +1,7 @@
 import logger from "../helpers/debug.ts";
 import { CACHE_PATH, CACHE_TIME } from "../env.ts";
 import { onShutdown } from "../helpers/shutdown.ts";
-import type { AddressPointer } from "applesauce-core/helpers";
+import type { AddressPointer, ProfileContent } from "applesauce-core/helpers";
 import { dirname } from "@std/path/posix";
 
 const log = logger.extend("cache");
@@ -106,4 +106,31 @@ export async function clearBlobServers(blob: string) {
     "blob-servers",
     blob,
   ]);
+}
+
+/** Gets a user's profile */
+export async function getUserProfile(
+  pubkey: string,
+): Promise<ProfileContent | null | 404> {
+  const entry = await cache.get<ProfileContent | 404>([
+    "user-profile",
+    pubkey,
+  ]);
+
+  return entry.value;
+}
+
+/** Sets a user's profile */
+export async function setUserProfile(
+  pubkey: string,
+  profile: ProfileContent | 404,
+) {
+  return await cache.set(
+    [
+      "user-profile",
+      pubkey,
+    ],
+    profile,
+    { expireIn: CACHE_TIME * 1000 },
+  );
 }

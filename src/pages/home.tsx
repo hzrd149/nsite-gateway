@@ -108,9 +108,10 @@ const HomePage: FC<{ sites: HomeSite[]; host: string }> = ({ sites, host }) => {
         <link rel="stylesheet" href="/styles.css" />
       </head>
       <body>
-        <main>
+        <main class="wide">
           <header>
             <h1>nsite gateway</h1>
+            <a href="/status">gateway status</a>
             <p class="meta">
               {pluralize(sites.length, "site", "sites")} hosted on {host}
             </p>
@@ -124,10 +125,6 @@ const HomePage: FC<{ sites: HomeSite[]; host: string }> = ({ sites, host }) => {
               ))}
             </ul>
           )}
-          <footer>
-            <a href="/status">gateway status</a> &middot; powered by{" "}
-            <a href="https://github.com/hzrd149/nsite-gateway">nsite-gateway</a>
-          </footer>
         </main>
       </body>
     </html>
