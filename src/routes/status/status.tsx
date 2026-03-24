@@ -1,12 +1,18 @@
 import type { Context } from "@hono/hono";
 import { html } from "@hono/hono/html";
 import { formatNsiteSubdomain } from "../../helpers/nsite-host.ts";
-import { getManifestPaths, NAMED_SITE_MANIFEST_KIND, ROOT_SITE_MANIFEST_KIND } from "../../helpers/site-manifest.ts";
+import {
+  getManifestPaths,
+  NAMED_SITE_MANIFEST_KIND,
+  ROOT_SITE_MANIFEST_KIND,
+} from "../../helpers/site-manifest.ts";
 import { eventStore, getUserProfile } from "../../services/nostr.ts";
 import { npubEncode } from "applesauce-core/helpers";
 import { StatusPage, type StatusSite } from "../../pages/status.tsx";
 
-function getManifestIdentifier(event: { kind: number; tags: string[][] }): string | undefined {
+function getManifestIdentifier(
+  event: { kind: number; tags: string[][] },
+): string | undefined {
   if (event.kind === ROOT_SITE_MANIFEST_KIND) return "";
   const dTag = event.tags.find((t) => t[0] === "d" && t[1] !== undefined)?.[1];
   return dTag && dTag !== "" ? dTag : undefined;
@@ -53,7 +59,9 @@ export async function statusRoute(c: Context): Promise<Response> {
 
   const uniquePubkeys = [...new Set(sites.map((s) => s.pubkey))];
   const profileResults = await Promise.all(
-    uniquePubkeys.map(async (pubkey) => [pubkey, await getUserProfile(pubkey, 5_000)] as const),
+    uniquePubkeys.map(async (pubkey) =>
+      [pubkey, await getUserProfile(pubkey, 5_000)] as const
+    ),
   );
   const profiles = new Map(profileResults);
 
@@ -64,7 +72,13 @@ export async function statusRoute(c: Context): Promise<Response> {
     }
   }
 
-  return c.html(html` <!DOCTYPE html>${(<StatusPage sites={sites} host={url.host} />)} `, 200, {
-    "Cache-Control": "no-store",
-  });
+  return c.html(
+    html`
+      <!DOCTYPE html>${<StatusPage sites={sites} host={url.host} />}
+    `,
+    200,
+    {
+      "Cache-Control": "no-store",
+    },
+  );
 }

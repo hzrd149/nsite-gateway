@@ -1,7 +1,11 @@
 import type { Context } from "@hono/hono";
 import { html } from "@hono/hono/html";
 import type { FC, PropsWithChildren } from "@hono/hono/jsx";
-import { decodePointer, npubEncode, type NostrEvent } from "applesauce-core/helpers";
+import {
+  decodePointer,
+  type NostrEvent,
+  npubEncode,
+} from "applesauce-core/helpers";
 import { formatAgeFromUnix, shortId } from "../../helpers/format.ts";
 import { formatNsiteSubdomain } from "../../helpers/nsite-host.ts";
 import {
@@ -23,7 +27,9 @@ type SitePathEntry = {
   serverHref: string | null;
 };
 
-function extractServerOrigin(url: string): { domain: string; href: string } | undefined {
+function extractServerOrigin(
+  url: string,
+): { domain: string; href: string } | undefined {
   try {
     const parsed = new URL(url);
     return { domain: parsed.hostname, href: parsed.origin };
@@ -32,7 +38,9 @@ function extractServerOrigin(url: string): { domain: string; href: string } | un
   }
 }
 
-function parseNsiteAddress(address: string): { pubkey: string; identifier: string; kind: number } | undefined {
+function parseNsiteAddress(
+  address: string,
+): { pubkey: string; identifier: string; kind: number } | undefined {
   try {
     const result = decodePointer(address);
     if (result.type === "npub") {
@@ -75,13 +83,19 @@ function formatTimestamp(createdAt: number): string {
   return new Date(createdAt * 1000).toISOString().replace(".000Z", "Z");
 }
 
-function getSiteHostname(pubkey: string, identifier: string, host: string): string | undefined {
+function getSiteHostname(
+  pubkey: string,
+  identifier: string,
+  host: string,
+): string | undefined {
   const subdomain = formatNsiteSubdomain(pubkey, identifier);
   if (!subdomain) return undefined;
   return `${subdomain}.${host}`;
 }
 
-const InfoRow: FC<PropsWithChildren<{ label: string }>> = ({ label, children }) => (
+const InfoRow: FC<PropsWithChildren<{ label: string }>> = (
+  { label, children },
+) => (
   <tr>
     <td class="info-label">{label}</td>
     <td>{children}</td>
@@ -119,11 +133,15 @@ const SiteDetailPage: FC<{
         <main class="wide">
           <header>
             <h1>
-              {props.href ? (
-                <a href={props.href}>{props.title || props.hostname || npub}</a>
-              ) : (
-                props.title || props.hostname || npub
-              )}
+              {props.href
+                ? (
+                  <a href={props.href}>
+                    {props.title || props.hostname || npub}
+                  </a>
+                )
+                : (
+                  props.title || props.hostname || npub
+                )}
             </h1>
             <p class="meta">
               <a href="/status">← all sites</a> | generated {generatedAt}
@@ -135,14 +153,20 @@ const SiteDetailPage: FC<{
             <table class="info-table">
               <tbody>
                 {props.title && <InfoRow label="title">{props.title}</InfoRow>}
-                {props.description && <InfoRow label="description">{props.description}</InfoRow>}
+                {props.description && (
+                  <InfoRow label="description">{props.description}</InfoRow>
+                )}
                 <InfoRow label="author">
                   <span title={props.pubkey}>{npub}</span>
                 </InfoRow>
-                <InfoRow label="identifier">{props.identifier || "ROOT"}</InfoRow>
+                <InfoRow label="identifier">
+                  {props.identifier || "ROOT"}
+                </InfoRow>
                 {props.hostname && (
                   <InfoRow label="hostname">
-                    {props.href ? <a href={props.href}>{props.hostname}</a> : props.hostname}
+                    {props.href
+                      ? <a href={props.href}>{props.hostname}</a>
+                      : props.hostname}
                   </InfoRow>
                 )}
                 {props.source && (
@@ -151,7 +175,9 @@ const SiteDetailPage: FC<{
                   </InfoRow>
                 )}
                 <InfoRow label="updated">
-                  <span title={formatTimestamp(props.createdAt)}>{formatAgeFromUnix(props.createdAt)} ago</span>
+                  <span title={formatTimestamp(props.createdAt)}>
+                    {formatAgeFromUnix(props.createdAt)} ago
+                  </span>
                 </InfoRow>
                 <InfoRow label="paths">{props.paths.length}</InfoRow>
               </tbody>
@@ -160,48 +186,51 @@ const SiteDetailPage: FC<{
 
           <section>
             <h2>Relays</h2>
-            {props.relays.length === 0 ? (
-              <p class="empty">No relays listed in manifest.</p>
-            ) : (
-              <ul class="server-list">
-                {props.relays.map((r) => {
-                  const href = r.replace(/^wss:\/\//, "https://").replace(/^ws:\/\//, "http://");
-                  return (
-                    <li key={r}>
-                      <a href={href}>{r}</a>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
+            {props.relays.length === 0
+              ? <p class="empty">No relays listed in manifest.</p>
+              : (
+                <ul class="server-list">
+                  {props.relays.map((r) => {
+                    const href = r.replace(/^wss:\/\//, "https://").replace(
+                      /^ws:\/\//,
+                      "http://",
+                    );
+                    return (
+                      <li key={r}>
+                        <a href={href}>{r}</a>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
           </section>
 
           <section>
             <h2>Blossom servers</h2>
             <h3>Manifest servers</h3>
-            {props.manifestServers.length === 0 ? (
-              <p class="empty">None listed.</p>
-            ) : (
-              <ul class="server-list">
-                {props.manifestServers.map((s) => (
-                  <li key={s}>
-                    <a href={s}>{s}</a>
-                  </li>
-                ))}
-              </ul>
-            )}
+            {props.manifestServers.length === 0
+              ? <p class="empty">None listed.</p>
+              : (
+                <ul class="server-list">
+                  {props.manifestServers.map((s) => (
+                    <li key={s}>
+                      <a href={s}>{s}</a>
+                    </li>
+                  ))}
+                </ul>
+              )}
             <h3>User servers</h3>
-            {props.userServers.length === 0 ? (
-              <p class="empty">None listed.</p>
-            ) : (
-              <ul class="server-list">
-                {props.userServers.map((s) => (
-                  <li key={s}>
-                    <a href={s}>{s}</a>
-                  </li>
-                ))}
-              </ul>
-            )}
+            {props.userServers.length === 0
+              ? <p class="empty">None listed.</p>
+              : (
+                <ul class="server-list">
+                  {props.userServers.map((s) => (
+                    <li key={s}>
+                      <a href={s}>{s}</a>
+                    </li>
+                  ))}
+                </ul>
+              )}
           </section>
 
           <section>
@@ -215,27 +244,31 @@ const SiteDetailPage: FC<{
                 </tr>
               </thead>
               <tbody>
-                {props.paths.length === 0 ? (
-                  <tr>
-                    <td colspan={3}>No paths in manifest.</td>
-                  </tr>
-                ) : (
-                  props.paths.map((entry) => (
-                    <tr key={entry.path}>
-                      <td data-label="path">{entry.path}</td>
-                      <td data-label="sha256" title={entry.sha256}>
-                        {shortId(entry.sha256, 12)}
-                      </td>
-                      <td data-label="server">
-                        {entry.serverDomain ? (
-                          <a href={entry.serverHref!}>{entry.serverDomain}</a>
-                        ) : (
-                          <span class="none">—</span>
-                        )}
-                      </td>
+                {props.paths.length === 0
+                  ? (
+                    <tr>
+                      <td colspan={3}>No paths in manifest.</td>
                     </tr>
-                  ))
-                )}
+                  )
+                  : (
+                    props.paths.map((entry) => (
+                      <tr key={entry.path}>
+                        <td data-label="path">{entry.path}</td>
+                        <td data-label="sha256" title={entry.sha256}>
+                          {shortId(entry.sha256, 12)}
+                        </td>
+                        <td data-label="server">
+                          {entry.serverDomain
+                            ? (
+                              <a href={entry.serverHref!}>
+                                {entry.serverDomain}
+                              </a>
+                            )
+                            : <span class="none">—</span>}
+                        </td>
+                      </tr>
+                    ))
+                  )}
               </tbody>
             </table>
           </section>
@@ -295,7 +328,8 @@ const InvalidAddressPage: FC<{ address?: string }> = ({ address }) => (
           </p>
         </header>
         <p>
-          Could not parse <strong>{address}</strong> as an npub, naddr, nprofile, or hex pubkey.
+          Could not parse <strong>{address}</strong>{" "}
+          as an npub, naddr, nprofile, or hex pubkey.
         </p>
       </main>
     </body>
@@ -307,9 +341,15 @@ export async function siteStatusRoute(c: Context): Promise<Response> {
   const parsed = address ? parseNsiteAddress(address) : undefined;
 
   if (!parsed) {
-    return c.html(html`<!DOCTYPE html>${(<InvalidAddressPage address={address ?? ""} />)}`, 400, {
-      "Cache-Control": "no-store",
-    });
+    return c.html(
+      html`
+        <!DOCTYPE html>${<InvalidAddressPage address={address ?? ""} />}
+      `,
+      400,
+      {
+        "Cache-Control": "no-store",
+      },
+    );
   }
 
   const url = new URL(c.req.url);
@@ -321,9 +361,15 @@ export async function siteStatusRoute(c: Context): Promise<Response> {
   ]);
 
   if (!manifest) {
-    return c.html(html`<!DOCTYPE html>${(<SiteNotFoundPage address={address ?? ""} />)}`, 404, {
-      "Cache-Control": "no-store",
-    });
+    return c.html(
+      html`
+        <!DOCTYPE html>${<SiteNotFoundPage address={address ?? ""} />}
+      `,
+      404,
+      {
+        "Cache-Control": "no-store",
+      },
+    );
   }
 
   const manifestPaths = getManifestPaths(manifest);
@@ -366,7 +412,8 @@ export async function siteStatusRoute(c: Context): Promise<Response> {
   );
 
   return c.html(
-    html`<!DOCTYPE html>${(
+    html`
+      <!DOCTYPE html>${(
         <SiteDetailPage
           address={address ?? ""}
           pubkey={pubkey}
@@ -383,7 +430,8 @@ export async function siteStatusRoute(c: Context): Promise<Response> {
           href={siteHostname ? `${url.protocol}//${siteHostname}/` : undefined}
           rawManifest={rawManifest}
         />
-      )}`,
+      )}
+    `,
     200,
     { "Cache-Control": "no-store" },
   );

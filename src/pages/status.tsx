@@ -27,14 +27,21 @@ function formatTimestamp(createdAt: number): string {
 }
 
 const SiteRow: FC<{ site: StatusSite }> = ({ site }) => {
-  const label = site.title || site.identifier || site.npub.slice(0, 8) + "..." + site.npub.slice(-4);
+  const label = site.title || site.identifier ||
+    site.npub.slice(0, 8) + "..." + site.npub.slice(-4);
   const statusAddress = site.identifier
-    ? naddrEncode({ pubkey: site.pubkey, identifier: site.identifier, kind: NAMED_SITE_MANIFEST_KIND })
+    ? naddrEncode({
+      pubkey: site.pubkey,
+      identifier: site.identifier,
+      kind: NAMED_SITE_MANIFEST_KIND,
+    })
     : site.npub;
   const statusHref = `/status/${statusAddress}`;
   return (
     <tr>
-      <td data-label="site">{site.href ? <a href={site.href}>{label}</a> : label}</td>
+      <td data-label="site">
+        {site.href ? <a href={site.href}>{label}</a> : label}
+      </td>
       <td data-label="author">
         <span title={site.pubkey}>{site.authorName || site.npub}</span>
       </td>
@@ -49,7 +56,9 @@ const SiteRow: FC<{ site: StatusSite }> = ({ site }) => {
   );
 };
 
-export const StatusPage: FC<{ sites: StatusSite[]; host: string }> = ({ sites, host }) => {
+export const StatusPage: FC<{ sites: StatusSite[]; host: string }> = (
+  { sites, host },
+) => {
   const generatedAt = new Date().toISOString().replace(".000Z", "Z");
   return (
     <html lang="en">
@@ -65,7 +74,9 @@ export const StatusPage: FC<{ sites: StatusSite[]; host: string }> = ({ sites, h
             <h1>Known cached sites</h1>
             <a href="/">&larr; back to gateway</a>
             <p class="meta">
-              {pluralize(sites.length, "cached site", "cached sites")} on {host} | generated {generatedAt}
+              {pluralize(sites.length, "cached site", "cached sites")} on {host}
+              {" "}
+              | generated {generatedAt}
             </p>
           </header>
           <table>
@@ -79,13 +90,15 @@ export const StatusPage: FC<{ sites: StatusSite[]; host: string }> = ({ sites, h
               </tr>
             </thead>
             <tbody>
-              {sites.length === 0 ? (
-                <tr>
-                  <td colspan={5}>No cached sites yet.</td>
-                </tr>
-              ) : (
-                sites.map((site) => <SiteRow key={site.key} site={site} />)
-              )}
+              {sites.length === 0
+                ? (
+                  <tr>
+                    <td colspan={5}>No cached sites yet.</td>
+                  </tr>
+                )
+                : (
+                  sites.map((site) => <SiteRow key={site.key} site={site} />)
+                )}
             </tbody>
           </table>
         </main>
