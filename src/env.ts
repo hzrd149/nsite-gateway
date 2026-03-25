@@ -23,10 +23,9 @@ async function checkLocalHttp(url: string): Promise<boolean> {
 }
 
 /** Nostr relays to use for lookup and cache */
-export const LOOKUP_RELAYS = relaySet(getList("LOOKUP_RELAYS", [
-  "wss://user.kindpag.es/",
-  "wss://purplepag.es/",
-]));
+export const LOOKUP_RELAYS = relaySet(
+  getList("LOOKUP_RELAYS", ["wss://user.kindpag.es/", "wss://purplepag.es/"]),
+);
 
 /** Extra nostr relays to use for loading site manifests */
 export const NOSTR_RELAYS = relaySet(getList("NOSTR_RELAYS"));
@@ -65,3 +64,17 @@ export const NSITE_PORT = Deno.env.get("NSITE_PORT")
 export const HOST = `${NSITE_HOST}:${NSITE_PORT}`;
 
 export const ONION_HOST = Deno.env.get("ONION_HOST");
+
+/** How long until the outboxes of a user should be re-checked (in seconds) */
+export const OUTBOXES_STALE_TIME = Deno.env.get("OUTBOXES_STALE_TIME")
+  ? parseInt(Deno.env.get("OUTBOXES_STALE_TIME")!, 10)
+  : 60 * 60; // 1 hour
+
+/** How long until the servers of a user should be re-checked (in seconds) */
+export const SERVERS_STALE_TIME = Deno.env.get("SERVERS_STALE_TIME")
+  ? parseInt(Deno.env.get("SERVERS_STALE_TIME")!, 10)
+  : 60 * 60; // 1 hour
+
+export const PROFILES_STALE_TIME = Deno.env.get("PROFILES_STALE_TIME")
+  ? parseInt(Deno.env.get("PROFILES_STALE_TIME")!, 10)
+  : 60 * 60; // 1 hour

@@ -16,6 +16,7 @@ import {
 } from "../helpers/site-manifest.ts";
 import { PathNotFound } from "../pages/path-not-found.tsx";
 import { SiteNotFound } from "../pages/site-not-found.tsx";
+import { incrementHitCount } from "../services/analytics.ts";
 import { streamBlob } from "../services/blossom.ts";
 import { getManifest, getUserBlossomServers } from "../services/nostr.ts";
 
@@ -73,6 +74,11 @@ export async function handleSiteRequest(
       `,
       404,
     );
+  }
+
+  // Count hits for .html pages (including 404.html)
+  if (match.path.endsWith(".html")) {
+    void incrementHitCount(pubkey, identifier ?? "");
   }
 
   // If the request path is found, create a strong etag and check if the client has a matching if-none-match header

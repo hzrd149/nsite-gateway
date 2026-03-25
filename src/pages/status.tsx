@@ -16,6 +16,7 @@ export type StatusSite = {
   href?: string;
   npub: string;
   authorName?: string;
+  hits?: number;
 };
 
 function pluralize(count: number, singular: string, plural: string): string {
@@ -43,12 +44,15 @@ const SiteRow: FC<{ site: StatusSite }> = ({ site }) => {
         {site.href ? <a href={site.href}>{label}</a> : label}
       </td>
       <td data-label="author">
-        <span title={site.pubkey}>{site.authorName || site.npub}</span>
+        <span title={site.pubkey}>
+          {site.authorName ||
+            site.npub.slice(0, 8) + "..." + site.npub.slice(-4)}
+        </span>
       </td>
-      <td data-label="id">{site.identifier || "ROOT"}</td>
       <td data-label="paths">
         <a href={statusHref}>{pluralize(site.pathCount, "path", "paths")}</a>
       </td>
+      <td data-label="hits">{site.hits ?? 0}</td>
       <td data-label="updated" title={formatTimestamp(site.createdAt)}>
         {formatAgeFromUnix(site.createdAt)}
       </td>
@@ -84,8 +88,8 @@ export const StatusPage: FC<{ sites: StatusSite[]; host: string }> = (
               <tr>
                 <th>site</th>
                 <th>author</th>
-                <th>id</th>
                 <th>paths</th>
+                <th>hits</th>
                 <th>updated</th>
               </tr>
             </thead>
@@ -93,7 +97,7 @@ export const StatusPage: FC<{ sites: StatusSite[]; host: string }> = (
               {sites.length === 0
                 ? (
                   <tr>
-                    <td colspan={5}>No cached sites yet.</td>
+                    <td colspan={6}>No cached sites yet.</td>
                   </tr>
                 )
                 : (

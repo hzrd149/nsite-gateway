@@ -19,6 +19,7 @@ import {
 } from "../../helpers/site-manifest.ts";
 import { getBlobServer } from "../../services/cache.ts";
 import { getManifest, getUserBlossomServers } from "../../services/nostr.ts";
+import { getHitCount } from "../../services/analytics.ts";
 
 type SitePathEntry = {
   path: string;
@@ -113,6 +114,7 @@ const SiteDetailPage: FC<{
   userServers: string[];
   relays: string[];
   paths: SitePathEntry[];
+  hits: number;
   createdAt: number;
   hostname?: string;
   href?: string;
@@ -180,6 +182,7 @@ const SiteDetailPage: FC<{
                   </span>
                 </InfoRow>
                 <InfoRow label="paths">{props.paths.length}</InfoRow>
+                <InfoRow label="hits">{props.hits}</InfoRow>
               </tbody>
             </table>
           </section>
@@ -355,9 +358,10 @@ export async function siteStatusRoute(c: Context): Promise<Response> {
   const url = new URL(c.req.url);
   const { pubkey, identifier, kind } = parsed;
 
-  const [userServers, manifest] = await Promise.all([
+  const [userServers, manifest, hits] = await Promise.all([
     getUserBlossomServers(pubkey, 5_000),
     getManifest({ pubkey, identifier, kind }, 5_000),
+    getHitCount(pubkey, identifier),
   ]);
 
   if (!manifest) {
@@ -425,6 +429,7 @@ export async function siteStatusRoute(c: Context): Promise<Response> {
           userServers={userServers ?? []}
           relays={relays}
           paths={pathEntries}
+          hits={hits}
           createdAt={manifest.created_at}
           hostname={siteHostname}
           href={siteHostname ? `${url.protocol}//${siteHostname}/` : undefined}

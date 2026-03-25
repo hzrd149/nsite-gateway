@@ -1,5 +1,16 @@
 # nsite-gateway
 
+## 3.2.0
+
+### Minor Changes
+
+- Add dark theme to pages
+- Add basic hit counter for sites
+
+### Patch Changes
+
+- Fix requests taking 10+ seconds when unable to find blossom servers
+
 ## 3.1.0
 
 ### Minor Changes

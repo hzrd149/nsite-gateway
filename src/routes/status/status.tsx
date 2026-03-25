@@ -9,6 +9,7 @@ import {
 import { eventStore, getUserProfile } from "../../services/nostr.ts";
 import { npubEncode } from "applesauce-core/helpers";
 import { StatusPage, type StatusSite } from "../../pages/status.tsx";
+import { getHitCount } from "../../services/analytics.ts";
 
 function getManifestIdentifier(
   event: { kind: number; tags: string[][] },
@@ -65,11 +66,19 @@ export async function statusRoute(c: Context): Promise<Response> {
   );
   const profiles = new Map(profileResults);
 
+  const hitResults = await Promise.all(
+    sites.map(async (site) =>
+      [site.key, await getHitCount(site.pubkey, site.identifier)] as const
+    ),
+  );
+  const hits = new Map(hitResults);
+
   for (const site of sites) {
     const profile = profiles.get(site.pubkey);
     if (profile) {
       site.authorName = profile.display_name || profile.name;
     }
+    site.hits = hits.get(site.key) ?? 0;
   }
 
   return c.html(
