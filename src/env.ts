@@ -55,6 +55,18 @@ export const CACHE_TIME = Deno.env.get("CACHE_TIME")
   ? parseInt(Deno.env.get("CACHE_TIME")!, 10)
   : 60 * 60;
 
+export const BLOB_SERVER_TTL = Deno.env.get("BLOB_SERVER_TTL")
+  ? parseInt(Deno.env.get("BLOB_SERVER_TTL")!, 10)
+  : 7 * 24 * 60 * 60;
+
+export const BLOB_BAD_SOURCE_TTL = Deno.env.get("BLOB_BAD_SOURCE_TTL")
+  ? parseInt(Deno.env.get("BLOB_BAD_SOURCE_TTL")!, 10)
+  : 24 * 60 * 60;
+
+export const VERIFY_WORKER_POOL_MAX = Deno.env.get("VERIFY_WORKER_POOL_MAX")
+  ? parseInt(Deno.env.get("VERIFY_WORKER_POOL_MAX")!, 10)
+  : navigator.hardwareConcurrency || 4;
+
 export const PUBLIC_DOMAIN = Deno.env.get("PUBLIC_DOMAIN");
 
 export const NSITE_HOST = Deno.env.get("NSITE_HOST") || "0.0.0.0";

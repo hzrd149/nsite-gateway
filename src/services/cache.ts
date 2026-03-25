@@ -1,6 +1,11 @@
 import { dirname } from "@std/path/posix";
 import type { AddressPointer } from "applesauce-core/helpers";
-import { CACHE_PATH, CACHE_TIME } from "../env.ts";
+import {
+  BLOB_BAD_SOURCE_TTL,
+  BLOB_SERVER_TTL,
+  CACHE_PATH,
+  CACHE_TIME,
+} from "../env.ts";
 import logger from "../helpers/debug.ts";
 import { onShutdown } from "../helpers/shutdown.ts";
 
@@ -48,7 +53,7 @@ export async function getBlobServer(blob: string) {
 /** Sets the current blossom used for a blob */
 export async function setBlobServer(blob: string, server: string) {
   return await cache.set(["blob-server", blob], server, {
-    expireIn: CACHE_TIME * 1000,
+    expireIn: BLOB_SERVER_TTL * 1000,
   });
 }
 
@@ -74,4 +79,46 @@ export async function setBlobServers(blob: string, servers: string[]) {
 /** Clears the cached servers for a blob */
 export async function clearBlobServers(blob: string) {
   return await cache.delete(["blob-servers", blob]);
+}
+
+export type BadBlobSourceEntry = {
+  reason: string;
+  createdAt: number;
+  expiresAt: number;
+};
+
+/** Gets a cached bad source for a blob */
+export async function getBadBlobSource(blob: string, server: string) {
+  const entry = await cache.get<BadBlobSourceEntry>([
+    "blob-source-bad",
+    blob,
+    server,
+  ]);
+
+  return entry.value;
+}
+
+/** Marks a source as bad for a blob for a limited time */
+export async function setBadBlobSource(
+  blob: string,
+  server: string,
+  reason: string,
+) {
+  const now = Date.now();
+  return await cache.set(
+    ["blob-source-bad", blob, server],
+    {
+      reason,
+      createdAt: now,
+      expiresAt: now + BLOB_BAD_SOURCE_TTL * 1000,
+    } satisfies BadBlobSourceEntry,
+    {
+      expireIn: BLOB_BAD_SOURCE_TTL * 1000,
+    },
+  );
+}
+
+/** Clears a bad source entry for a blob */
+export async function clearBadBlobSource(blob: string, server: string) {
+  return await cache.delete(["blob-source-bad", blob, server]);
 }

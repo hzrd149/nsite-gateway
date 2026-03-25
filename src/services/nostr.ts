@@ -18,7 +18,7 @@ import {
 } from "applesauce-core/helpers";
 import { createEventLoaderForStore } from "applesauce-loaders/loaders";
 import { RelayPool } from "applesauce-relay";
-import { map, takeUntil, timer } from "rxjs";
+import { takeUntil, timer } from "rxjs";
 import {
   CACHE_RELAYS,
   LOOKUP_RELAYS,
@@ -35,7 +35,6 @@ import {
   NAMED_SITE_MANIFEST_KIND,
   ROOT_SITE_MANIFEST_KIND,
 } from "../helpers/site-manifest.ts";
-import * as cache from "../services/cache.ts";
 
 const log = logger.extend("nostr");
 
@@ -146,14 +145,16 @@ export async function getUserProfile(
   timeout = 5_000,
 ): Promise<ProfileContent | undefined> {
   const checked = profilesChecked.get(pubkey);
-  const stale = checked &&
+  const fresh = checked &&
     checked.getTime() > Date.now() - PROFILES_STALE_TIME * 1000;
 
   // check in-memory cache
   const cached = eventStore.getReplaceable(kinds.Metadata, pubkey);
 
   // If results are fresh, return whatever is in the event store
-  if (!stale) return cached && getProfileContent(cached);
+  if (fresh) return cached && getProfileContent(cached);
+
+  log(`Fetching profile for ${pubkey}`);
 
   // Otherwise, fetch the latest profile
   const user = castUser(pubkey, eventStore);
@@ -178,12 +179,14 @@ export async function getUserOutboxes(
   timeout = 5_000,
 ): Promise<string[] | undefined> {
   const checked = outboxesChecked.get(pubkey);
-  const stale = checked &&
-    checked.getTime() > Date.now() - OUTBOXES_STALE_TIME * 1000;
   const cached = eventStore.getReplaceable(kinds.RelayList, pubkey);
+  const fresh = checked &&
+    checked.getTime() > Date.now() - OUTBOXES_STALE_TIME * 1000;
 
   // If results are fresh, return whatever is in the event store
-  if (!stale) return cached && getOutboxes(cached);
+  if (fresh) return cached && getOutboxes(cached);
+
+  log(`Fetching outboxes for ${pubkey}`);
 
   // Otherwise, fetch the latest outboxes
   const user = castUser(pubkey, eventStore);
@@ -206,15 +209,17 @@ const blossomServersChecked = new Map<string, Date>();
 /** Gets a users list of blossom servers */
 export async function getUserBlossomServers(pubkey: string, timeout = 5_000) {
   const checked = blossomServersChecked.get(pubkey);
-  const stale = checked &&
+  const fresh = checked &&
     checked.getTime() > Date.now() - SERVERS_STALE_TIME * 1000;
 
   const cached = eventStore.getReplaceable(BLOSSOM_SERVER_LIST_KIND, pubkey);
 
   // If results are fresh, return whatever is in the event store
-  if (!stale) {
+  if (fresh) {
     return cached && getBlossomServersFromList(cached).map((s) => s.toString());
   }
+
+  log(`Fetching blossom servers for ${pubkey}`);
 
   // Otherwise, fetch the latest blossom servers
   const user = castUser(pubkey, eventStore);

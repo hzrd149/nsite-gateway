@@ -12,6 +12,7 @@ import {
 } from "./src/env.ts";
 import app from "./src/server.ts";
 import { onShutdown } from "./src/helpers/shutdown.ts";
+import { getBlobVerifierPoolStats } from "./src/services/blob-verifier-pool.ts";
 import { syncSiteManifests } from "./src/services/nostr.ts";
 
 const RELAY_SYNC_INTERVAL_MS = 10 * 60 * 1000;
@@ -26,6 +27,10 @@ console.log(`cache relays: ${formatList(CACHE_RELAYS)}`);
 console.log(`nostr relays: ${formatList(NOSTR_RELAYS)}`);
 console.log(`blossom servers: ${formatList(BLOSSOM_SERVERS)}`);
 console.log(`blossom proxy: ${BLOSSOM_PROXY || "none"}`);
+const verifierPool = getBlobVerifierPoolStats();
+console.log(
+  `verify worker pool: ${verifierPool.activeWorkers} active, ${verifierPool.idleWorkers} idle, max ${verifierPool.maxWorkers}`,
+);
 
 const server = Deno.serve(
   {

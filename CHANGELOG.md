@@ -1,5 +1,15 @@
 # nsite-gateway
 
+## 3.3.0
+
+### Minor Changes
+
+- Verify blobs on after the first request
+
+### Patch Changes
+
+- Fix bug with fetching users profiles
+
 ## 3.2.1
 
 ### Patch Changes

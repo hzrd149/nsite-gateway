@@ -1,14 +1,24 @@
 import { MAX_FILE_SIZE } from "../env.ts";
 import logger from "../helpers/debug.ts";
 import {
+  type VerificationResult,
+  verifyStreamInWorker,
+} from "./blob-verifier-pool.ts";
+import {
+  clearBadBlobSource,
   clearBlobServer,
+  clearBlobServers,
+  getBadBlobSource,
   getBlobServer,
   getBlobServers,
+  setBadBlobSource,
   setBlobServer,
   setBlobServers,
 } from "./cache.ts";
 
 const log = logger.extend("blossom");
+const invalidBlobLog = log.extend("invalid-blob");
+const activeVerifications = new Set<string>();
 
 function extractDomain(serverUrl: string): string {
   try {
@@ -25,15 +35,140 @@ function buildBud10QueryParams(allServers: string[], pubkey?: string): string {
   return params.toString();
 }
 
+function getVerificationKey(sha256: string, server: string): string {
+  return `${sha256}:${server}`;
+}
+
+export async function isBadBlobSource(sha256: string, server: string) {
+  return !!(await getBadBlobSource(sha256, server));
+}
+
+async function filterBadBlobURLs(
+  sha256: string,
+  urls: string[],
+): Promise<string[]> {
+  const checks = await Promise.all(
+    urls.map(async (url) => ({
+      url,
+      blocked: await isBadBlobSource(sha256, url),
+    })),
+  );
+  return checks.filter((entry) => !entry.blocked).map((entry) => entry.url);
+}
+
+async function filterBadServers(
+  sha256: string,
+  servers: string[],
+): Promise<string[]> {
+  const checks = await Promise.all(
+    servers.map(async (server) => {
+      const url = new URL(sha256, server).toString();
+      return { server, blocked: await isBadBlobSource(sha256, url) };
+    }),
+  );
+  return checks.filter((entry) => !entry.blocked).map((entry) => entry.server);
+}
+
+export async function markBadBlobSource(
+  sha256: string,
+  server: string,
+  reason = "hash_mismatch",
+) {
+  await setBadBlobSource(sha256, server, reason);
+
+  const cached = await getBlobServer(sha256);
+  if (cached === server) await clearBlobServer(sha256);
+
+  await clearBlobServers(sha256);
+}
+
+async function markGoodBlobSource(sha256: string, server: string) {
+  await clearBadBlobSource(sha256, server);
+}
+
+function scheduleBlobVerification(
+  sha256: string,
+  server: string,
+  stream: ReadableStream<Uint8Array>,
+  requestLog: (...data: unknown[]) => void,
+) {
+  const key = getVerificationKey(sha256, server);
+  if (activeVerifications.has(key)) {
+    stream.cancel().catch(() => {});
+    return;
+  }
+
+  activeVerifications.add(key);
+
+  void verifyStreamInWorker(sha256, stream)
+    .then(async (result) => {
+      if (result.ok) {
+        await markGoodBlobSource(sha256, server);
+        requestLog(`Verified ${server}: sha256 matched (${result.size} bytes)`);
+        return;
+      }
+
+      if (result.reason === "hash_mismatch") {
+        await markBadBlobSource(sha256, server, result.reason);
+        const message =
+          `Invalid blob from ${server}: expected sha256=${sha256}, actual sha256=${
+            result.actualSha256 ?? "unknown"
+          }, size=${result.size ?? "unknown"}`;
+        invalidBlobLog(message);
+        console.error(`[nsite:blossom:invalid-blob] ${message}`);
+        requestLog(
+          `Rejected ${server}: sha256 mismatch (${
+            result.actualSha256 ?? "unknown"
+          })`,
+        );
+        return;
+      }
+
+      requestLog(`Verification failed for ${server}: ${result.reason}`);
+    })
+    .catch((error) => {
+      requestLog(
+        `Verifier crashed for ${server}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    })
+    .finally(() => {
+      activeVerifications.delete(key);
+    });
+}
+
+export function shouldVerifyBlobResponse(options: {
+  method?: string;
+  status: number;
+  hasRange: boolean;
+  hasPreferredSource: boolean;
+  server: string;
+  preferredSource?: string;
+}) {
+  if ((options.method ?? "GET") !== "GET") return false;
+  if (options.status !== 200) return false;
+  if (options.hasRange) return false;
+  if (!options.hasPreferredSource) return true;
+  return options.server !== options.preferredSource;
+}
+
 export async function findBlobURLs(
   sha256: string,
   servers: string[],
   options?: { pubkey?: string; blossomProxy?: string },
 ): Promise<string[]> {
   const cached = await getBlobServers(sha256);
-  if (cached) return cached;
+  if (cached) {
+    const filtered = await filterBadBlobURLs(sha256, cached);
+    if (filtered.length !== cached.length) {
+      await setBlobServers(sha256, filtered);
+    }
+    return filtered;
+  }
 
   const { pubkey, blossomProxy } = options || {};
+  const availableServers = await filterBadServers(sha256, servers);
 
   const ordered: string[] = [];
   const seen = new Set<string>();
@@ -42,9 +177,12 @@ export async function findBlobURLs(
   if (blossomProxy) {
     try {
       const proxyUrl = new URL(sha256, blossomProxy);
-      const queryParams = buildBud10QueryParams(servers, pubkey);
+      const queryParams = buildBud10QueryParams(availableServers, pubkey);
       if (queryParams) proxyUrl.search = queryParams;
-      proxyUrlString = proxyUrl.toString();
+      const candidate = proxyUrl.toString();
+      if (!(await isBadBlobSource(sha256, candidate))) {
+        proxyUrlString = candidate;
+      }
     } catch (error) {
       log.extend(sha256.slice(0, 6))(
         `Failed to build BLOSSOM_PROXY URL: ${
@@ -59,7 +197,7 @@ export async function findBlobURLs(
     seen.add(proxyUrlString);
   }
 
-  for (const server of servers) {
+  for (const server of availableServers) {
     const url = new URL(sha256, server).toString();
     if (seen.has(url)) continue;
     seen.add(url);
@@ -114,7 +252,14 @@ export async function streamBlob(
   if (urls.length === 0) return undefined;
 
   const cached = await getBlobServer(sha256);
-  const ordered = cached ? [cached, ...urls.filter((u) => u !== cached)] : urls;
+  const preferred = cached && !(await isBadBlobSource(sha256, cached))
+    ? cached
+    : undefined;
+  const ordered = preferred
+    ? [preferred, ...urls.filter((u) => u !== preferred)]
+    : urls;
+  const hasPreferredSource = !!preferred;
+  const hasRange = new Headers(init?.headers).has("range");
 
   for (const server of ordered) {
     try {
@@ -155,8 +300,24 @@ export async function streamBlob(
           controller.abort();
         });
 
+        let responseBody = body;
+        if (
+          shouldVerifyBlobResponse({
+            method: init?.method,
+            status: response.status,
+            hasRange,
+            hasPreferredSource,
+            server,
+            preferredSource: preferred,
+          })
+        ) {
+          const [clientBody, verifyBody] = body.tee();
+          responseBody = clientBody;
+          scheduleBlobVerification(sha256, server, verifyBody, requestLog);
+        }
+
         // Return new response for the blob
-        return new Response(body, {
+        return new Response(responseBody, {
           status: response.status,
           statusText: response.statusText,
           headers: response.headers,

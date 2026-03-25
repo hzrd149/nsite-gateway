@@ -2,8 +2,10 @@
   "version": "5",
   "specifiers": {
     "jsr:@hono/hono@^4.12.9": "4.12.9",
+    "jsr:@std/assert@^1.0.14": "1.0.19",
     "jsr:@std/assert@^1.0.15": "1.0.19",
     "jsr:@std/assert@^1.0.17": "1.0.19",
+    "jsr:@std/crypto@^1.0.4": "1.0.5",
     "jsr:@std/internal@^1.0.12": "1.0.12",
     "jsr:@std/media-types@^1.1.0": "1.1.0",
     "jsr:@std/path@^1.1.4": "1.1.4",
@@ -25,6 +27,9 @@
       "dependencies": [
         "jsr:@std/internal"
       ]
+    },
+    "@std/crypto@1.0.5": {
+      "integrity": "0dcfbb319fe0bba1bd3af904ceb4f948cde1b92979ec1614528380ed308a3b40"
     },
     "@std/internal@1.0.12": {
       "integrity": "972a634fd5bc34b242024402972cd5143eac68d8dffaca5eaa4dba30ce17b027"
