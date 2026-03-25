@@ -16,7 +16,11 @@ function buildTree(paths: string[]): TreeNode {
     for (const part of parts) {
       current += "/" + part;
       if (!node.children.has(part)) {
-        node.children.set(part, { name: part, path: current, children: new Map() });
+        node.children.set(part, {
+          name: part,
+          path: current,
+          children: new Map(),
+        });
       }
       node = node.children.get(part)!;
     }
@@ -34,7 +38,8 @@ function renderTree(node: TreeNode, prefix: string = ""): any[] {
     const isFile = entry.children.size === 0;
     lines.push(
       <span>
-        {prefix}{connector}
+        {prefix}
+        {connector}
         {isFile ? <a href={entry.path}>{entry.name}</a> : entry.name}
         {"\n"}
       </span>,
@@ -51,7 +56,9 @@ type PathNotFoundProps = {
   paths: string[];
 };
 
-export const PathNotFound: FC<PathNotFoundProps> = ({ hostname, pathname, paths }) => {
+export const PathNotFound: FC<PathNotFoundProps> = (
+  { hostname, pathname, paths },
+) => {
   const tree = buildTree(paths);
   return (
     <Document title="Page not found">

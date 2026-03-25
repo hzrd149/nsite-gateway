@@ -15,6 +15,7 @@ import {
   getManifestServers,
   resolveManifestPath,
 } from "../helpers/site-manifest.ts";
+import { NoBlossomServers } from "../pages/no-blossom-servers.tsx";
 import { PathNotFound } from "../pages/path-not-found.tsx";
 import { SiteNotFound } from "../pages/site-not-found.tsx";
 import { incrementHitCount } from "../services/analytics.ts";
@@ -71,7 +72,11 @@ export async function handleSiteRequest(
     return c.html(
       html`
         <!DOCTYPE html>${(
-          <PathNotFound hostname={url.hostname} pathname={url.pathname} paths={paths} />
+          <PathNotFound
+            hostname={url.hostname}
+            pathname={url.pathname}
+            paths={paths}
+          />
         )}
       `,
       404,
@@ -103,9 +108,12 @@ export async function handleSiteRequest(
 
   // If no servers are available, return a 404
   if (servers.length === 0) {
-    return new Response("Not Found: No blossom servers available", {
-      status: 404,
-    });
+    return c.html(
+      html`
+        <!DOCTYPE html>${<NoBlossomServers hostname={url.hostname} />}
+      `,
+      404,
+    );
   }
 
   // Create request headers for the blob request
