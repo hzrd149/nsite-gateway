@@ -1,4 +1,5 @@
 import type { Child, FC } from "@hono/hono/jsx";
+import { css } from "../helpers/inline-css.ts";
 
 type DocumentProps = {
   title: string;
@@ -12,7 +13,7 @@ export const Document: FC<DocumentProps> = ({ title, children }) => {
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>{title}</title>
-        <link rel="stylesheet" href="/styles.css" />
+        <style dangerouslySetInnerHTML={{ __html: css }} />
       </head>
       <body>
         <main>

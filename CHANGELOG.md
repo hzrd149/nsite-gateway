@@ -1,5 +1,11 @@
 # nsite-gateway
 
+## 3.2.1
+
+### Patch Changes
+
+- Fix css styles on error pages
+
 ## 3.2.0
 
 ### Minor Changes

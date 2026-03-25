@@ -11,6 +11,7 @@ import {
 } from "../helpers/http-cache.ts";
 import { formatNsiteSubdomain } from "../helpers/nsite-host.ts";
 import {
+  getManifestPaths,
   getManifestServers,
   resolveManifestPath,
 } from "../helpers/site-manifest.ts";
@@ -66,10 +67,11 @@ export async function handleSiteRequest(
 
   const match = resolveManifestPath(manifest, url.pathname);
   if (!match) {
+    const paths = [...getManifestPaths(manifest).keys()];
     return c.html(
       html`
         <!DOCTYPE html>${(
-          <PathNotFound hostname={url.hostname} pathname={url.pathname} />
+          <PathNotFound hostname={url.hostname} pathname={url.pathname} paths={paths} />
         )}
       `,
       404,
