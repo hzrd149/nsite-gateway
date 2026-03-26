@@ -1,6 +1,6 @@
 {
   "name": "@hzrd149/nsite-gateway",
-  "version": "3.3.0",
+  "version": "3.3.1",
   "exports": "./main.ts",
   "compilerOptions": {
     "jsx": "precompile",
@@ -24,5 +24,16 @@
     "debug": "npm:debug@^4.4.3",
     "rxjs": "npm:rxjs@^7.8.2",
     "xbytes": "npm:xbytes@^1.9.1"
+  },
+  "publish": {
+    "include": [
+      "public",
+      "main.ts",
+      "README.md",
+      "LICENSE",
+      "src",
+      "nsite.md",
+      "CHANGELOG.md"
+    ]
   }
 }
