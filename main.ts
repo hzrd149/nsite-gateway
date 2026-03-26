@@ -13,7 +13,7 @@ import {
 import app from "./src/server.ts";
 import { onShutdown } from "./src/helpers/shutdown.ts";
 import { getBlobVerifierPoolStats } from "./src/services/blob-verifier-pool.ts";
-import { syncSiteManifests } from "./src/services/nostr.ts";
+import { syncNsiteEvents } from "./src/services/nostr.ts";
 
 const RELAY_SYNC_INTERVAL_MS = 10 * 60 * 1000;
 
@@ -46,9 +46,11 @@ const server = Deno.serve(
 // Hydrate from nostr relays when set
 if (NOSTR_RELAYS && NOSTR_RELAYS.length > 0) {
   console.log("Hydrating from nostr relays...", NOSTR_RELAYS);
-  syncSiteManifests(NOSTR_RELAYS)
-    .then((found) => {
-      console.log(`Found ${found} site manifest events from nostr relays`);
+  syncNsiteEvents(NOSTR_RELAYS)
+    .then(({ manifests, deletes }) => {
+      console.log(
+        `Found ${manifests} site manifest events and ${deletes} delete events from nostr relays`,
+      );
     })
     .catch((error) => {
       console.error("Failed to hydrate from nostr relays", error);
@@ -61,9 +63,9 @@ if (NOSTR_RELAYS && NOSTR_RELAYS.length > 0) {
     syncInFlight = true;
 
     try {
-      const found = await syncSiteManifests(NOSTR_RELAYS);
+      const { manifests, deletes } = await syncNsiteEvents(NOSTR_RELAYS);
       console.log(
-        `Periodic relay sync found ${found} new site manifest events`,
+        `Periodic relay sync found ${manifests} new site manifest events and ${deletes} delete events`,
       );
     } catch (error) {
       console.error("Periodic relay sync failed", error);

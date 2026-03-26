@@ -1,5 +1,11 @@
 # nsite-gateway
 
+## 3.3.2
+
+### Patch Changes
+
+- Sync kind 5 delete events during relay hydration and periodic nsite sync
+
 ## 3.3.0
 
 ### Minor Changes

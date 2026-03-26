@@ -1,6 +1,6 @@
 {
   "name": "@hzrd149/nsite-gateway",
-  "version": "3.3.1",
+  "version": "3.3.2",
   "exports": "./main.ts",
   "compilerOptions": {
     "jsx": "precompile",

@@ -6,6 +6,7 @@ import {
 import { EventStore, firstValueFrom, lastValueFrom } from "applesauce-core";
 import {
   type AddressPointer,
+  Filter,
   getInboxes,
   getOutboxes,
   getProfileContent,
@@ -13,7 +14,7 @@ import {
   kinds,
   type NostrEvent,
   persistEventsToCache,
-  ProfileContent,
+  type ProfileContent,
   relaySet,
 } from "applesauce-core/helpers";
 import { createEventLoaderForStore } from "applesauce-loaders/loaders";
@@ -38,7 +39,7 @@ import {
 
 const log = logger.extend("nostr");
 
-const SITE_MANIFEST_KINDS = [ROOT_SITE_MANIFEST_KIND, NAMED_SITE_MANIFEST_KIND];
+const DELETE_EVENT_KIND = 5;
 
 export const pool = new RelayPool();
 
@@ -86,7 +87,9 @@ export const eventLoader = createEventLoaderForStore(eventStore, pool, {
 });
 
 function getLatestSiteManifestCreatedAt(): number | undefined {
-  const manifests = eventStore.getTimeline({ kinds: SITE_MANIFEST_KINDS });
+  const manifests = eventStore.getTimeline({
+    kinds: [ROOT_SITE_MANIFEST_KIND, NAMED_SITE_MANIFEST_KIND],
+  });
 
   if (manifests.length === 0) return undefined;
 
@@ -99,6 +102,29 @@ function getLatestSiteManifestCreatedAt(): number | undefined {
   return latest;
 }
 
+function getLatestSiteDeleteCreatedAt(): number | undefined {
+  const deletes = eventStore.getTimeline({ kinds: [DELETE_EVENT_KIND] });
+  return deletes[0]?.created_at;
+}
+
+async function requestAndStoreEvents(
+  relays: string[],
+  filter: Filter,
+): Promise<number> {
+  return await new Promise((resolve, reject) => {
+    let found = 0;
+
+    pool.request(relays, filter).subscribe({
+      next: (event) => {
+        const insert = eventStore.add(event);
+        if (insert && insert === event) found++;
+      },
+      error: reject,
+      complete: () => resolve(found),
+    });
+  });
+}
+
 export async function syncSiteManifests(
   relays = NOSTR_RELAYS,
 ): Promise<number> {
@@ -107,23 +133,37 @@ export async function syncSiteManifests(
   const latestCreatedAt = getLatestSiteManifestCreatedAt();
   const since = latestCreatedAt === undefined ? undefined : latestCreatedAt + 1;
 
-  return await new Promise((resolve, reject) => {
-    let found = 0;
-
-    pool
-      .request(relays, {
-        kinds: SITE_MANIFEST_KINDS,
-        ...(since === undefined ? {} : { since }),
-      })
-      .subscribe({
-        next: (event) => {
-          const insert = eventStore.add(event);
-          if (insert && insert === event) found++;
-        },
-        error: reject,
-        complete: () => resolve(found),
-      });
+  return await requestAndStoreEvents(relays, {
+    kinds: [ROOT_SITE_MANIFEST_KIND, NAMED_SITE_MANIFEST_KIND],
+    ...(since === undefined ? {} : { since }),
   });
+}
+
+export async function syncSiteManifestDeletes(
+  relays = NOSTR_RELAYS,
+): Promise<number> {
+  if (!relays || relays.length === 0) return 0;
+
+  const latestCreatedAt = getLatestSiteDeleteCreatedAt();
+  const since = latestCreatedAt === undefined ? undefined : latestCreatedAt + 1;
+
+  return await requestAndStoreEvents(relays, {
+    // Get delete events
+    kinds: [DELETE_EVENT_KIND],
+    // Filter for delete events targeting nsite kinds
+    "#k": [String(ROOT_SITE_MANIFEST_KIND), String(NAMED_SITE_MANIFEST_KIND)],
+    ...(since === undefined ? {} : { since }),
+  });
+}
+
+export async function syncNsiteEvents(relays = NOSTR_RELAYS): Promise<{
+  manifests: number;
+  deletes: number;
+}> {
+  const manifests = await syncSiteManifests(relays);
+  const deletes = await syncSiteManifestDeletes(relays);
+
+  return { manifests, deletes };
 }
 
 if (CACHE_RELAYS) {
