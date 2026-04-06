@@ -3,11 +3,19 @@ import { html } from "@hono/hono/html";
 import type { FC, PropsWithChildren } from "@hono/hono/jsx";
 import {
   decodePointer,
+  naddrEncode,
+  neventEncode,
   type NostrEvent,
   npubEncode,
 } from "applesauce-core/helpers";
+import { decodeHex32B36 } from "../../helpers/base36.ts";
 import { formatAgeFromUnix, shortId } from "../../helpers/format.ts";
-import { formatNsiteSubdomain } from "../../helpers/nsite-host.ts";
+import {
+  formatNsiteSubdomain,
+  formatSnapshotSubdomain,
+} from "../../helpers/nsite-host.ts";
+import type { ResolvedSiteAddress } from "../../helpers/resolved-site.ts";
+import { buildIndexedSites, type SiteSnapshotSummary } from "../../helpers/site-index.ts";
 import {
   getManifestDescription,
   getManifestPaths,
@@ -15,10 +23,16 @@ import {
   getManifestServers,
   getManifestSource,
   getManifestTitle,
+  getSnapshotParentAddress,
   ROOT_SITE_MANIFEST_KIND,
 } from "../../helpers/site-manifest.ts";
 import { getBlobServer } from "../../services/cache.ts";
-import { getManifest, getUserBlossomServers } from "../../services/nostr.ts";
+import {
+  eventStore,
+  getManifest,
+  getUserBlossomServers,
+  getUserProfile,
+} from "../../services/nostr.ts";
 import { getHitCount } from "../../services/analytics.ts";
 
 type SitePathEntry = {
@@ -26,6 +40,16 @@ type SitePathEntry = {
   sha256: string;
   serverDomain: string | null;
   serverHref: string | null;
+};
+
+type LinkedSiteSummary = {
+  label: string;
+  address: string;
+  href?: string;
+};
+
+type SnapshotTableEntry = SiteSnapshotSummary & {
+  matchesCurrent: boolean;
 };
 
 function extractServerOrigin(
@@ -39,13 +63,31 @@ function extractServerOrigin(
   }
 }
 
+function haveMatchingPaths(a: NostrEvent, b: NostrEvent): boolean {
+  const aPaths = getManifestPaths(a);
+  const bPaths = getManifestPaths(b);
+  if (aPaths.size !== bPaths.size) return false;
+
+  for (const [path, sha256] of aPaths) {
+    if (bPaths.get(path) !== sha256) return false;
+  }
+
+  return true;
+}
+
 function parseNsiteAddress(
   address: string,
-): { pubkey: string; identifier: string; kind: number } | undefined {
+): ResolvedSiteAddress | undefined {
+  if (/^v[0-9a-z]{50}$/.test(address)) {
+    const id = decodeHex32B36(address.slice(1));
+    if (id) return { type: "snapshot", id };
+  }
+
   try {
     const result = decodePointer(address);
     if (result.type === "npub") {
       return {
+        type: "replaceable",
         pubkey: result.data,
         identifier: "",
         kind: ROOT_SITE_MANIFEST_KIND,
@@ -53,6 +95,7 @@ function parseNsiteAddress(
     }
     if (result.type === "naddr") {
       return {
+        type: "replaceable",
         pubkey: result.data.pubkey,
         identifier: result.data.identifier,
         kind: result.data.kind,
@@ -60,9 +103,16 @@ function parseNsiteAddress(
     }
     if (result.type === "nprofile") {
       return {
+        type: "replaceable",
         pubkey: result.data.pubkey,
         identifier: "",
         kind: ROOT_SITE_MANIFEST_KIND,
+      };
+    }
+    if (result.type === "nevent") {
+      return {
+        type: "snapshot",
+        ...result.data,
       };
     }
   } catch {
@@ -71,6 +121,7 @@ function parseNsiteAddress(
 
   if (/^[0-9a-f]{64}$/i.test(address)) {
     return {
+      type: "replaceable",
       pubkey: address.toLowerCase(),
       identifier: "",
       kind: ROOT_SITE_MANIFEST_KIND,
@@ -85,11 +136,12 @@ function formatTimestamp(createdAt: number): string {
 }
 
 function getSiteHostname(
-  pubkey: string,
-  identifier: string,
+  site: ResolvedSiteAddress,
   host: string,
 ): string | undefined {
-  const subdomain = formatNsiteSubdomain(pubkey, identifier);
+  const subdomain = site.type === "snapshot"
+    ? formatSnapshotSubdomain(site.id)
+    : formatNsiteSubdomain(site.pubkey, site.identifier);
   if (!subdomain) return undefined;
   return `${subdomain}.${host}`;
 }
@@ -116,9 +168,16 @@ const SiteDetailPage: FC<{
   paths: SitePathEntry[];
   hits: number;
   createdAt: number;
+  isSnapshot: boolean;
+  host: string;
+  protocol: string;
   hostname?: string;
   href?: string;
   rawManifest: string;
+  snapshots: SnapshotTableEntry[];
+  parentSite?: LinkedSiteSummary;
+  authorName?: string;
+  authorImage?: string;
 }> = (props) => {
   const npub = npubEncode(props.pubkey);
   const generatedAt = new Date().toISOString().replace(".000Z", "Z");
@@ -159,11 +218,34 @@ const SiteDetailPage: FC<{
                   <InfoRow label="description">{props.description}</InfoRow>
                 )}
                 <InfoRow label="author">
-                  <span title={props.pubkey}>{npub}</span>
+                  <div style="display:flex;align-items:center;gap:0.75rem;">
+                    {props.authorImage && (
+                      <img
+                        src={props.authorImage}
+                        alt=""
+                        width="40"
+                        height="40"
+                        style="border-radius:9999px;object-fit:cover;"
+                      />
+                    )}
+                    <div>
+                      <div>{props.authorName || npub}</div>
+                      <div class="meta">
+                        <span title={props.pubkey}>{npub}</span>
+                      </div>
+                    </div>
+                  </div>
                 </InfoRow>
                 <InfoRow label="identifier">
-                  {props.identifier || "ROOT"}
+                  {props.isSnapshot ? "SNAPSHOT" : props.identifier || "ROOT"}
                 </InfoRow>
+                {props.parentSite && (
+                  <InfoRow label="parent site">
+                    <a href={props.parentSite.href ?? `/status/${props.parentSite.address}`}>
+                      {props.parentSite.label}
+                    </a>
+                  </InfoRow>
+                )}
                 {props.hostname && (
                   <InfoRow label="hostname">
                     {props.href
@@ -181,7 +263,6 @@ const SiteDetailPage: FC<{
                     {formatAgeFromUnix(props.createdAt)} ago
                   </span>
                 </InfoRow>
-                <InfoRow label="paths">{props.paths.length}</InfoRow>
                 <InfoRow label="hits">{props.hits}</InfoRow>
               </tbody>
             </table>
@@ -235,6 +316,60 @@ const SiteDetailPage: FC<{
                 </ul>
               )}
           </section>
+
+          {props.snapshots.length > 0 && (
+            <section>
+              <h2>Snapshots ({props.snapshots.length})</h2>
+              <table>
+                <thead>
+                  <tr>
+                    <th>snapshot</th>
+                    <th>status</th>
+                    <th>current</th>
+                    <th>paths</th>
+                    <th>updated</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {props.snapshots.map((snapshot) => {
+                    const snapshotStatusAddress = neventEncode({ id: snapshot.id });
+                    const snapshotStatusHref = snapshotStatusAddress
+                      ? `/status/${snapshotStatusAddress}`
+                      : undefined;
+                    const snapshotSubdomain = formatSnapshotSubdomain(snapshot.id);
+                    const snapshotHref = snapshotSubdomain
+                      ? `${props.protocol}//${snapshotSubdomain}.${props.host}/`
+                      : undefined;
+                    const label = snapshot.title || shortId(snapshot.id, 12);
+                    return (
+                      <tr key={snapshot.id}>
+                        <td data-label="snapshot">
+                          {snapshotHref
+                            ? <a href={snapshotHref}>{label}</a>
+                            : label}
+                        </td>
+                        <td data-label="status">
+                          {snapshotStatusHref
+                            ? <a href={snapshotStatusHref}>status</a>
+                            : ""}
+                        </td>
+                        <td data-label="current">
+                          {snapshot.matchesCurrent ? "matches current" : ""}
+                        </td>
+                        <td data-label="paths">{snapshot.pathCount}</td>
+                        <td
+                          data-label="updated"
+                          title={formatTimestamp(snapshot.createdAt)}
+                        >
+                          {formatAgeFromUnix(snapshot.createdAt)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </section>
+          )}
 
           <section>
             <h2>Paths ({props.paths.length})</h2>
@@ -332,7 +467,7 @@ const InvalidAddressPage: FC<{ address?: string }> = ({ address }) => (
         </header>
         <p>
           Could not parse <strong>{address}</strong>{" "}
-          as an npub, naddr, nprofile, or hex pubkey.
+          as an npub, naddr, nevent, nprofile, hex pubkey, or snapshot id.
         </p>
       </main>
     </body>
@@ -356,13 +491,7 @@ export async function siteStatusRoute(c: Context): Promise<Response> {
   }
 
   const url = new URL(c.req.url);
-  const { pubkey, identifier, kind } = parsed;
-
-  const [userServers, manifest, hits] = await Promise.all([
-    getUserBlossomServers(pubkey, 5_000),
-    getManifest({ pubkey, identifier, kind }, 5_000),
-    getHitCount(pubkey, identifier),
-  ]);
+  const manifest = await getManifest(parsed, 5_000);
 
   if (!manifest) {
     return c.html(
@@ -376,14 +505,60 @@ export async function siteStatusRoute(c: Context): Promise<Response> {
     );
   }
 
+  const identifier = parsed.type === "replaceable" ? parsed.identifier : "";
+
+  const [userServers, hits, profile] = await Promise.all([
+    getUserBlossomServers(manifest.pubkey, 5_000),
+    getHitCount(manifest.pubkey, identifier),
+    getUserProfile(manifest.pubkey, 5_000),
+  ]);
+
   const manifestPaths = getManifestPaths(manifest);
   const manifestServers = getManifestServers(manifest);
   const relays = getManifestRelays(manifest);
   const title = getManifestTitle(manifest);
   const description = getManifestDescription(manifest);
   const source = getManifestSource(manifest);
+  const indexedSites = buildIndexedSites(eventStore.getTimeline({}));
+  const indexedSite = parsed.type === "replaceable"
+    ? indexedSites.find((site) =>
+      site.kind === parsed.kind && site.pubkey === parsed.pubkey &&
+      site.identifier === parsed.identifier
+    )
+    : undefined;
+  const snapshots: SnapshotTableEntry[] = (indexedSite?.snapshots ?? []).map(
+    (snapshot) => {
+      const event = eventStore.getTimeline({ kinds: [manifest.kind, 5128] }).find(
+        (candidate) => candidate.id === snapshot.id,
+      );
+      return {
+        ...snapshot,
+        matchesCurrent: !!event && haveMatchingPaths(manifest, event),
+      };
+    },
+  );
+  const parentSite = parsed.type === "snapshot"
+    ? (() => {
+      const parent = getSnapshotParentAddress(manifest);
+      if (!parent) return undefined;
 
-  const siteHostname = getSiteHostname(pubkey, identifier, url.host);
+      const address = parent.identifier
+        ? naddrEncode({
+          pubkey: parent.pubkey,
+          identifier: parent.identifier,
+          kind: parent.kind,
+        })
+        : npubEncode(parent.pubkey);
+      const label = parent.identifier || npubEncode(parent.pubkey);
+      return {
+        label,
+        address,
+        href: `/status/${address}`,
+      } satisfies LinkedSiteSummary;
+    })()
+    : undefined;
+
+  const siteHostname = getSiteHostname(parsed, url.host);
 
   const manifestPathList = [...manifestPaths.entries()];
   const pathEntries: SitePathEntry[] = await Promise.all(
@@ -420,7 +595,7 @@ export async function siteStatusRoute(c: Context): Promise<Response> {
       <!DOCTYPE html>${(
         <SiteDetailPage
           address={address ?? ""}
-          pubkey={pubkey}
+          pubkey={manifest.pubkey}
           identifier={identifier}
           title={title}
           description={description}
@@ -431,9 +606,16 @@ export async function siteStatusRoute(c: Context): Promise<Response> {
           paths={pathEntries}
           hits={hits}
           createdAt={manifest.created_at}
+          isSnapshot={parsed.type === "snapshot"}
+          host={url.host}
+          protocol={url.protocol}
           hostname={siteHostname}
           href={siteHostname ? `${url.protocol}//${siteHostname}/` : undefined}
           rawManifest={rawManifest}
+          snapshots={snapshots}
+          parentSite={parentSite}
+          authorName={profile?.display_name || profile?.name}
+          authorImage={profile?.picture}
         />
       )}
     `,

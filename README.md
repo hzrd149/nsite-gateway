@@ -4,8 +4,8 @@ A Deno + Hono gateway that serves
 [static websites published on Nostr](https://github.com/nostr-protocol/nips/blob/master/5A.md)
 (the nsite protocol).
 
-Sites are identified by site manifest events (kind `15128` for root sites and
-kind `35128` for named sites) and blobs served via
+Sites are identified by site manifest events (kind `15128` for root sites, kind
+`35128` for named sites, and kind `5128` for snapshots) and blobs served via
 [Blossom](https://github.com/hzrd149/blossom).
 
 ## Configuring
@@ -53,9 +53,9 @@ The Deno tasks already include the required flags (`--unstable-kv`,
 `--env-file=.env`, and the necessary permission flags).
 
 If `NOSTR_RELAYS` is set, the gateway will bulk-fetch all known site manifests
-(kinds `15128` and `35128`) from those relays at startup, pre-populating the
-in-memory event store, and then re-check those relays every 10 minutes for newer
-manifest events.
+(kinds `15128`, `35128`, and `5128`) from those relays at startup,
+pre-populating the in-memory event store, and then re-check those relays every
+10 minutes for newer manifest events.
 
 ## Cache Backends
 
@@ -146,11 +146,14 @@ The gateway resolves incoming hostnames to a Nostr site using three strategies
 1. **npub subdomain** — `npub1abc....nsite.example.com`: the leftmost label is a
    valid bech32 `npub`, decoded to a hex pubkey. Serves the root site (kind
    `15128`).
-2. **Named site label** — a 50-character base36-encoded pubkey followed by a
+2. **Snapshot label** — `v<50-char-base36-event-id>.nsite.example.com`: the
+   leftmost label starts with `v` and is followed by a 50-character base36
+   snapshot event id. Serves the exact snapshot event (kind `5128`).
+3. **Named site label** — a 50-character base36-encoded pubkey followed by a
    1–13 character site identifier (e.g.
    `<base36pubkey><identifier>.nsite.example.com`). Serves a named site (kind
    `35128`).
-3. **CNAME resolution** — if the hostname doesn't parse directly as an nsite
+4. **CNAME resolution** — if the hostname doesn't parse directly as an nsite
    label, the gateway resolves CNAME records. This enables custom domains like
    `myblog.com → npub1abc....nsite.example.com`.
 
@@ -170,8 +173,9 @@ The gateway serves a built-in status dashboard at `/status`:
 - **`GET /status`** — table of all site manifests currently loaded in the event
   store, with titles, authors, path counts, and last-updated timestamps.
 - **`GET /status/:address`** — detailed view for any `npub`, `naddr`,
-  `nprofile`, or raw hex pubkey: site metadata, relays, blossom servers, full
-  path table with cached server info, and the raw manifest JSON.
+  `nprofile`, raw hex pubkey, or `v<snapshotIdB36>` snapshot id: site metadata,
+  relays, blossom servers, full path table with cached server info, and the raw
+  manifest JSON.
 
 Status pages are always `Cache-Control: no-store`.
 

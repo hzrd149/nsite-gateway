@@ -5,7 +5,6 @@ import {
 } from "applesauce-common/helpers";
 import { EventStore, firstValueFrom, lastValueFrom } from "applesauce-core";
 import {
-  type AddressPointer,
   getInboxes,
   getOutboxes,
   getProfileContent,
@@ -13,7 +12,7 @@ import {
   kinds,
   type NostrEvent,
   persistEventsToCache,
-  ProfileContent,
+  type ProfileContent,
   relaySet,
 } from "applesauce-core/helpers";
 import { createEventLoaderForStore } from "applesauce-loaders/loaders";
@@ -29,16 +28,26 @@ import {
 } from "../env.ts";
 import logger from "../helpers/debug.ts";
 import { formatAgeFromUnix } from "../helpers/format.ts";
+import type {
+  ReplaceableSiteAddress,
+  ResolvedSiteAddress,
+  SnapshotSiteAddress,
+} from "../helpers/resolved-site.ts";
 import { onShutdown } from "../helpers/shutdown.ts";
 import {
   getManifestIdentifier,
+  MANIFEST_SNAPSHOT_KIND,
   NAMED_SITE_MANIFEST_KIND,
   ROOT_SITE_MANIFEST_KIND,
 } from "../helpers/site-manifest.ts";
 
 const log = logger.extend("nostr");
 
-const SITE_MANIFEST_KINDS = [ROOT_SITE_MANIFEST_KIND, NAMED_SITE_MANIFEST_KIND];
+const SITE_MANIFEST_KINDS = [
+  ROOT_SITE_MANIFEST_KIND,
+  NAMED_SITE_MANIFEST_KIND,
+  MANIFEST_SNAPSHOT_KIND,
+];
 
 export const pool = new RelayPool();
 
@@ -237,8 +246,11 @@ export async function getUserBlossomServers(pubkey: string, timeout = 5_000) {
   return servers?.map((server) => server.toString());
 }
 
-/** Loads a site manifest event from the store */
-export async function getManifest(address: AddressPointer, timeout = 5_000) {
+/** Loads a replaceable site manifest event from the store */
+export async function getReplaceableManifest(
+  address: ReplaceableSiteAddress,
+  timeout = 5_000,
+) {
   const manifest = eventStore.getReplaceable(
     address.kind,
     address.pubkey,
@@ -266,6 +278,45 @@ export async function getManifest(address: AddressPointer, timeout = 5_000) {
     ),
     { defaultValue: undefined },
   );
+}
+
+/** Loads a snapshot manifest event by id */
+export async function getSnapshotManifest(
+  snapshot: SnapshotSiteAddress,
+  timeout = 5_000,
+) {
+  const cached = eventStore
+    .getTimeline({ kinds: [MANIFEST_SNAPSHOT_KIND] })
+    .find((event) => event.id === snapshot.id);
+  if (cached) return cached;
+
+  const relays = relaySet(CACHE_RELAYS, LOOKUP_RELAYS, NOSTR_RELAYS);
+  if (relays.length === 0) return undefined;
+
+  log(
+    `Loading snapshot manifest ${snapshot.id} from ${relays.join(", ")}`,
+  );
+
+  return await lastValueFrom(
+    eventLoader(
+      { ...snapshot, relays: relaySet(relays), cache: false },
+    ).pipe(
+      takeUntil(timer(timeout)),
+    ),
+    { defaultValue: undefined },
+  );
+}
+
+/** Loads any supported site manifest event */
+export async function getManifest(
+  address: ResolvedSiteAddress,
+  timeout = 5_000,
+) {
+  if (address.type === "snapshot") {
+    return await getSnapshotManifest(address, timeout);
+  }
+
+  return await getReplaceableManifest(address, timeout);
 }
 
 export function isMatchingManifestAddress(

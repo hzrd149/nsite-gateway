@@ -1,6 +1,6 @@
 import type { FC } from "@hono/hono/jsx";
 import { formatAgeFromUnix } from "../helpers/format.ts";
-import { naddrEncode } from "applesauce-core/helpers";
+import { naddrEncode, neventEncode } from "applesauce-core/helpers";
 import { NAMED_SITE_MANIFEST_KIND } from "../helpers/site-manifest.ts";
 
 export type StatusSite = {
@@ -17,6 +17,9 @@ export type StatusSite = {
   npub: string;
   authorName?: string;
   hits?: number;
+  snapshotCount: number;
+  latestSnapshotId?: string;
+  latestSnapshotCreatedAt?: number;
 };
 
 function pluralize(count: number, singular: string, plural: string): string {
@@ -38,6 +41,9 @@ const SiteRow: FC<{ site: StatusSite }> = ({ site }) => {
     })
     : site.npub;
   const statusHref = `/status/${statusAddress}`;
+  const latestSnapshotHref = site.latestSnapshotId
+    ? `/status/${neventEncode({ id: site.latestSnapshotId })}`
+    : undefined;
   return (
     <tr>
       <td data-label="site">
@@ -52,9 +58,20 @@ const SiteRow: FC<{ site: StatusSite }> = ({ site }) => {
       <td data-label="paths">
         <a href={statusHref}>{pluralize(site.pathCount, "path", "paths")}</a>
       </td>
+      <td data-label="snapshots">
+        {site.snapshotCount > 0
+          ? (
+            latestSnapshotHref
+              ? <a href={latestSnapshotHref}>{site.snapshotCount}</a>
+              : site.snapshotCount
+          )
+          : 0}
+      </td>
       <td data-label="hits">{site.hits ?? 0}</td>
       <td data-label="updated" title={formatTimestamp(site.createdAt)}>
-        {formatAgeFromUnix(site.createdAt)}
+        {formatAgeFromUnix(
+          site.latestSnapshotCreatedAt ?? site.createdAt,
+        )}
       </td>
     </tr>
   );
@@ -75,10 +92,10 @@ export const StatusPage: FC<{ sites: StatusSite[]; host: string }> = (
       <body>
         <main class="wide">
           <header>
-            <h1>Known cached sites</h1>
+            <h1>Known sites</h1>
             <a href="/">&larr; back to gateway</a>
             <p class="meta">
-              {pluralize(sites.length, "cached site", "cached sites")} on {host}
+              {pluralize(sites.length, "site", "sites")} available through {host}
               {" "}
               | generated {generatedAt}
             </p>
@@ -89,6 +106,7 @@ export const StatusPage: FC<{ sites: StatusSite[]; host: string }> = (
                 <th>site</th>
                 <th>author</th>
                 <th>paths</th>
+                <th>snapshots</th>
                 <th>hits</th>
                 <th>updated</th>
               </tr>
@@ -97,7 +115,7 @@ export const StatusPage: FC<{ sites: StatusSite[]; host: string }> = (
               {sites.length === 0
                 ? (
                   <tr>
-                    <td colspan={6}>No cached sites yet.</td>
+                    <td colspan={6}>No sites available through this gateway yet.</td>
                   </tr>
                 )
                 : (
