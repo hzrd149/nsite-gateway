@@ -1,5 +1,11 @@
 # nsite-gateway
 
+## 3.4.0
+
+### Minor Changes
+
+- Add support for site snapshots
+
 ## 3.3.0
 
 ### Minor Changes
