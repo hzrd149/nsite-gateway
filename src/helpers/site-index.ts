@@ -33,6 +33,10 @@ export type IndexedSite = {
   snapshots: SiteSnapshotSummary[];
 };
 
+/**
+ * Prefer the newest manifest per address. The naive loop overwrites by timeline order; if the
+ * store yields events out of order, an older manifest could replace a newer one.
+ */
 export function buildIndexedSites(events: NostrEvent[]): IndexedSite[] {
   const sites = new Map<string, IndexedSite>();
   const snapshotsByParent = new Map<string, SiteSnapshotSummary[]>();
@@ -71,6 +75,10 @@ export function buildIndexedSites(events: NostrEvent[]): IndexedSite[] {
       pubkey: event.pubkey,
       identifier: identifier ?? "",
     });
+    const existing = sites.get(key);
+    if (existing && event.created_at < existing.createdAt) {
+      continue;
+    }
     sites.set(key, {
       key,
       pubkey: event.pubkey,
