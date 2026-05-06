@@ -30,6 +30,11 @@ function formatTimestamp(createdAt: number): string {
   return new Date(createdAt * 1000).toISOString().replace(".000Z", "Z");
 }
 
+/** Newest of manifest publish time vs latest snapshot (manifest-only republish still moves this). */
+function siteDisplayUpdatedAt(site: StatusSite): number {
+  return Math.max(site.createdAt, site.latestSnapshotCreatedAt ?? 0);
+}
+
 const SiteRow: FC<{ site: StatusSite }> = ({ site }) => {
   const label = site.title || site.identifier ||
     site.npub.slice(0, 8) + "..." + site.npub.slice(-4);
@@ -68,10 +73,8 @@ const SiteRow: FC<{ site: StatusSite }> = ({ site }) => {
           : 0}
       </td>
       <td data-label="hits">{site.hits ?? 0}</td>
-      <td data-label="updated" title={formatTimestamp(site.createdAt)}>
-        {formatAgeFromUnix(
-          site.latestSnapshotCreatedAt ?? site.createdAt,
-        )}
+      <td data-label="updated" title={formatTimestamp(updatedAt)}>
+        {formatAgeFromUnix(updatedAt)}
       </td>
     </tr>
   );
