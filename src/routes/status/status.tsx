@@ -2,13 +2,17 @@ import type { Context } from "@hono/hono";
 import { html } from "@hono/hono/html";
 import { formatNsiteSubdomain } from "../../helpers/nsite-host.ts";
 import { buildIndexedSites } from "../../helpers/site-index.ts";
+import { getCurationMutedPubkeys } from "../../services/curation.ts";
 import { eventStore, getUserProfile } from "../../services/nostr.ts";
 import { npubEncode } from "applesauce-core/helpers";
 import { StatusPage, type StatusSite } from "../../pages/status.tsx";
 import { getHitCount } from "../../services/analytics.ts";
 
 function getStatusSites(host: string, protocol: string): StatusSite[] {
-  const manifests = buildIndexedSites(eventStore.getTimeline({}));
+  const muted = getCurationMutedPubkeys();
+  const manifests = buildIndexedSites(eventStore.getTimeline({})).filter(
+    (site) => !muted.has(site.pubkey),
+  );
   const sites: StatusSite[] = [];
 
   for (const site of manifests) {

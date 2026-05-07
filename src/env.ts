@@ -1,5 +1,9 @@
 import xbytes from "xbytes";
-import { relaySet } from "applesauce-core/helpers";
+import {
+  normalizeToPubkey,
+  normalizeToSecretKey,
+  relaySet,
+} from "applesauce-core/helpers";
 
 function getList(name: string, fallback: string[] = []): string[] {
   const value = Deno.env.get(name);
@@ -90,3 +94,20 @@ export const SERVERS_STALE_TIME = Deno.env.get("SERVERS_STALE_TIME")
 export const PROFILES_STALE_TIME = Deno.env.get("PROFILES_STALE_TIME")
   ? parseInt(Deno.env.get("PROFILES_STALE_TIME")!, 10)
   : 60 * 60; // 1 hour
+
+const CURATION_USER = Deno.env.get("CURATION_USER");
+
+/** The pubkey of a user who is allowed to currate the what is shown on the home page */
+export const CURATION_PUBKEY = normalizeToPubkey(
+  Deno.env.get("CURATION_USER") || "",
+);
+
+/** The secret key of the curator if provided in nsec1 format */
+export const CURRATION_NSEC = CURATION_USER?.startsWith("nsec1")
+  ? normalizeToSecretKey(CURATION_USER)
+  : undefined;
+
+/** How often to re-fetch the curator mute list (kind 10000), in seconds */
+export const CURATION_REFRESH = Deno.env.get("CURATION_REFRESH")
+  ? parseInt(Deno.env.get("CURATION_REFRESH")!, 10)
+  : 10 * 60;

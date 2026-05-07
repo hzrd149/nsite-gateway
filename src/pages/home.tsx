@@ -3,11 +3,10 @@ import type { FC } from "@hono/hono/jsx";
 import { html } from "@hono/hono/html";
 import { neventEncode, npubEncode } from "applesauce-core/helpers";
 import { formatAgeFromUnix } from "../helpers/format.ts";
-import {
-  formatNsiteSubdomain,
-} from "../helpers/nsite-host.ts";
+import { formatNsiteSubdomain } from "../helpers/nsite-host.ts";
 import { buildIndexedSites } from "../helpers/site-index.ts";
 import { NAMED_SITE_MANIFEST_KIND } from "../helpers/site-manifest.ts";
+import { getCurationMutedPubkeys } from "../services/curation.ts";
 import { eventStore, getUserProfile } from "../services/nostr.ts";
 import { naddrEncode } from "applesauce-core/helpers";
 
@@ -32,7 +31,10 @@ async function getHomeSites(
   host: string,
   protocol: string,
 ): Promise<HomeSite[]> {
-  const manifests = buildIndexedSites(eventStore.getTimeline({}));
+  const muted = getCurationMutedPubkeys();
+  const manifests = buildIndexedSites(eventStore.getTimeline({})).filter(
+    (site) => !muted.has(site.pubkey),
+  );
 
   const uniquePubkeys = new Set<string>();
   for (const site of manifests) uniquePubkeys.add(site.pubkey);
@@ -106,22 +108,25 @@ const SiteCard: FC<{ site: HomeSite }> = ({ site }) => {
       <div class="site-meta">
         by {site.authorName || site.npub} &middot;{" "}
         {pluralize(site.pathCount, "page", "pages")} &middot; updated{" "}
-        {formatAgeFromUnix(site.createdAt)} ago &middot;{" "}
-        {site.snapshotCount > 0
+        {formatAgeFromUnix(site.createdAt)} ago &middot; {site.snapshotCount > 0
           ? (
             <>
               {pluralize(site.snapshotCount, "snapshot", "snapshots")}
               {site.latestSnapshotCreatedAt
                 ? (
                   <>
-                    {" "}&middot; latest snapshot {formatAgeFromUnix(site.latestSnapshotCreatedAt)} ago
+                    {" "}&middot; latest snapshot{" "}
+                    {formatAgeFromUnix(site.latestSnapshotCreatedAt)} ago
                   </>
                 )
                 : null}
               {snapshotHref
-                ? <>{" "}&middot; <a href={snapshotHref}>latest snapshot</a></>
-                : null}
-              {" "}&middot;{" "}
+                ? (
+                  <>
+                    {" "}&middot; <a href={snapshotHref}>latest snapshot</a>
+                  </>
+                )
+                : null} &middot;{" "}
             </>
           )
           : null}
@@ -151,10 +156,10 @@ const HomePage: FC<{ sites: HomeSite[]; host: string }> = ({ sites, host }) => {
           </header>
           {sites.length === 0
             ? (
-                <p class="empty-state">
-                  No sites cached yet. Sites will appear here as they are made
-                  available through this gateway.
-                </p>
+              <p class="empty-state">
+                No sites cached yet. Sites will appear here as they are made
+                available through this gateway.
+              </p>
             )
             : (
               <ul class="site-list">

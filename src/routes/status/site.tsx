@@ -15,7 +15,10 @@ import {
   formatSnapshotSubdomain,
 } from "../../helpers/nsite-host.ts";
 import type { ResolvedSiteAddress } from "../../helpers/resolved-site.ts";
-import { buildIndexedSites, type SiteSnapshotSummary } from "../../helpers/site-index.ts";
+import {
+  buildIndexedSites,
+  type SiteSnapshotSummary,
+} from "../../helpers/site-index.ts";
 import {
   getManifestDescription,
   getManifestPaths,
@@ -241,7 +244,10 @@ const SiteDetailPage: FC<{
                 </InfoRow>
                 {props.parentSite && (
                   <InfoRow label="parent site">
-                    <a href={props.parentSite.href ?? `/status/${props.parentSite.address}`}>
+                    <a
+                      href={props.parentSite.href ??
+                        `/status/${props.parentSite.address}`}
+                    >
                       {props.parentSite.label}
                     </a>
                   </InfoRow>
@@ -332,11 +338,15 @@ const SiteDetailPage: FC<{
                 </thead>
                 <tbody>
                   {props.snapshots.map((snapshot) => {
-                    const snapshotStatusAddress = neventEncode({ id: snapshot.id });
+                    const snapshotStatusAddress = neventEncode({
+                      id: snapshot.id,
+                    });
                     const snapshotStatusHref = snapshotStatusAddress
                       ? `/status/${snapshotStatusAddress}`
                       : undefined;
-                    const snapshotSubdomain = formatSnapshotSubdomain(snapshot.id);
+                    const snapshotSubdomain = formatSnapshotSubdomain(
+                      snapshot.id,
+                    );
                     const snapshotHref = snapshotSubdomain
                       ? `${props.protocol}//${snapshotSubdomain}.${props.host}/`
                       : undefined;
@@ -528,9 +538,10 @@ export async function siteStatusRoute(c: Context): Promise<Response> {
     : undefined;
   const snapshots: SnapshotTableEntry[] = (indexedSite?.snapshots ?? []).map(
     (snapshot) => {
-      const event = eventStore.getTimeline({ kinds: [manifest.kind, 5128] }).find(
-        (candidate) => candidate.id === snapshot.id,
-      );
+      const event = eventStore.getTimeline({ kinds: [manifest.kind, 5128] })
+        .find(
+          (candidate) => candidate.id === snapshot.id,
+        );
       return {
         ...snapshot,
         matchesCurrent: !!event && haveMatchingPaths(manifest, event),

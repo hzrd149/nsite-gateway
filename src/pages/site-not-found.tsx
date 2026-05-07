@@ -17,8 +17,7 @@ export const SiteNotFound: FC<SiteNotFoundProps> = ({ hostname }) => {
         This gateway makes static sites published on{" "}
         <a href="https://nostr.com">Nostr</a>{" "}
         available through the nsite protocol. If you own this domain, publish a
-        site with{" "}
-        <a href="https://github.com/nichenqin/nsyte">nsyte</a>{" "}
+        site with <a href="https://github.com/nichenqin/nsyte">nsyte</a>{" "}
         and point your DNS here to get started.
       </p>
     </Document>

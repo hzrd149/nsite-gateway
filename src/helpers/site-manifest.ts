@@ -34,7 +34,9 @@ export function getManifestAddressKey(address: ManifestAddress): string {
   return `${address.kind}:${address.pubkey}:${address.identifier}`;
 }
 
-export function parseManifestAddress(value: string): ManifestAddress | undefined {
+export function parseManifestAddress(
+  value: string,
+): ManifestAddress | undefined {
   const match = value.match(/^(\d+):([0-9a-f]{64}):(.*)$/i);
   if (!match) return undefined;
 

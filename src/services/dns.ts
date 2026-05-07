@@ -22,7 +22,7 @@ export async function resolvePubkeyFromHostname(
   hostname: string,
   resolveDns: ResolveDns = getCnameRecords,
 ): Promise<ResolvedSiteAddress | undefined> {
-  if (hostname === "localhost") return undefined;
+  if (hostname === "localhost" || hostname === "127.0.0.1") return undefined;
 
   const cached = await getDNSPubkey(hostname);
   if (cached) return cached;

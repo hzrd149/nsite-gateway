@@ -10,11 +10,11 @@ import {
   getProfileContent,
   getReplaceableAddressFromPointer,
   kinds,
-  type NostrEvent,
   persistEventsToCache,
   type ProfileContent,
   relaySet,
 } from "applesauce-core/helpers";
+import type { NostrEvent } from "applesauce-core/helpers";
 import { createEventLoaderForStore } from "applesauce-loaders/loaders";
 import { RelayPool } from "applesauce-relay";
 import { takeUntil, timer } from "rxjs";
@@ -82,9 +82,10 @@ eventStore.filters({ kinds: [kinds.RelayList] }).subscribe((list) => {
   );
 });
 
-onShutdown(async () => {
+onShutdown(() => {
   console.log("Shutting down Nostr service");
   for (const [, relay] of pool.relays) relay.close();
+  return Promise.resolve();
 });
 
 /** Create generic single event loader for the event store */

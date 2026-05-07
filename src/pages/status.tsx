@@ -38,6 +38,7 @@ function siteDisplayUpdatedAt(site: StatusSite): number {
 const SiteRow: FC<{ site: StatusSite }> = ({ site }) => {
   const label = site.title || site.identifier ||
     site.npub.slice(0, 8) + "..." + site.npub.slice(-4);
+  const updatedAt = siteDisplayUpdatedAt(site);
   const statusAddress = site.identifier
     ? naddrEncode({
       pubkey: site.pubkey,
@@ -49,6 +50,7 @@ const SiteRow: FC<{ site: StatusSite }> = ({ site }) => {
   const latestSnapshotHref = site.latestSnapshotId
     ? `/status/${neventEncode({ id: site.latestSnapshotId })}`
     : undefined;
+
   return (
     <tr>
       <td data-label="site">
@@ -68,9 +70,13 @@ const SiteRow: FC<{ site: StatusSite }> = ({ site }) => {
           ? (
             latestSnapshotHref
               ? <a href={latestSnapshotHref}>{site.snapshotCount}</a>
-              : site.snapshotCount
+              : (
+                site.snapshotCount
+              )
           )
-          : 0}
+          : (
+            0
+          )}
       </td>
       <td data-label="hits">{site.hits ?? 0}</td>
       <td data-label="updated" title={formatTimestamp(updatedAt)}>
@@ -98,9 +104,8 @@ export const StatusPage: FC<{ sites: StatusSite[]; host: string }> = (
             <h1>Known sites</h1>
             <a href="/">&larr; back to gateway</a>
             <p class="meta">
-              {pluralize(sites.length, "site", "sites")} available through {host}
-              {" "}
-              | generated {generatedAt}
+              {pluralize(sites.length, "site", "sites")} available through{" "}
+              {host} | generated {generatedAt}
             </p>
           </header>
           <table>
@@ -118,7 +123,9 @@ export const StatusPage: FC<{ sites: StatusSite[]; host: string }> = (
               {sites.length === 0
                 ? (
                   <tr>
-                    <td colspan={6}>No sites available through this gateway yet.</td>
+                    <td colspan={6}>
+                      No sites available through this gateway yet.
+                    </td>
                   </tr>
                 )
                 : (

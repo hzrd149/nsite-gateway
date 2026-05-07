@@ -2,7 +2,11 @@ import { assertEquals } from "jsr:@std/assert";
 import type { NostrEvent } from "applesauce-core/helpers";
 import { buildIndexedSites } from "../site-index.ts";
 
-function createEvent(init: Partial<NostrEvent> & Pick<NostrEvent, "id" | "pubkey" | "kind" | "created_at" | "tags">): NostrEvent {
+function createEvent(
+  init:
+    & Partial<NostrEvent>
+    & Pick<NostrEvent, "id" | "pubkey" | "kind" | "created_at" | "tags">,
+): NostrEvent {
   return {
     content: "",
     sig: "f".repeat(128),

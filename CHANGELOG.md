@@ -1,5 +1,15 @@
 # nsite-gateway
 
+## 3.5.0
+
+### Minor Changes
+
+- Add support for curation
+
+### Patch Changes
+
+- Pin applesauce version to v6
+
 ## 3.4.0
 
 ### Minor Changes
