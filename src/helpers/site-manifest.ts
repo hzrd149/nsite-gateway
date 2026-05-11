@@ -141,3 +141,7 @@ export function getManifestDescription(
 export function getManifestSource(manifest: NostrEvent): string | undefined {
   return getTagValue(manifest, "source");
 }
+
+export function getManifestClient(manifest: NostrEvent): string | undefined {
+  return getTagValue(manifest, "client");
+}

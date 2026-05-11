@@ -24,6 +24,7 @@ Deno.test("buildIndexedSites groups snapshots under their parent site", () => {
     tags: [
       ["d", "blog"],
       ["title", "Blog"],
+      ["client", "nsyte"],
       ["path", "/index.html", "2".repeat(64)],
     ],
   });
@@ -53,6 +54,7 @@ Deno.test("buildIndexedSites groups snapshots under their parent site", () => {
   const sites = buildIndexedSites([site, olderSnapshot, newerSnapshot]);
 
   assertEquals(sites.length, 1);
+  assertEquals(sites[0].client, "nsyte");
   assertEquals(sites[0].snapshots.map((snapshot) => snapshot.id), [
     newerSnapshot.id,
     olderSnapshot.id,

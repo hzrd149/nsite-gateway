@@ -20,6 +20,7 @@ import {
   type SiteSnapshotSummary,
 } from "../../helpers/site-index.ts";
 import {
+  getManifestClient,
   getManifestDescription,
   getManifestPaths,
   getManifestRelays,
@@ -30,6 +31,10 @@ import {
   ROOT_SITE_MANIFEST_KIND,
 } from "../../helpers/site-manifest.ts";
 import { getBlobServer } from "../../services/cache.ts";
+import {
+  getNsiteDeployClientReference,
+  type NsiteDeployClientReference,
+} from "../../nsite-clients.ts";
 import {
   eventStore,
   getManifest,
@@ -165,6 +170,7 @@ const SiteDetailPage: FC<{
   title?: string;
   description?: string;
   source?: string;
+  client?: NsiteDeployClientReference;
   manifestServers: string[];
   userServers: string[];
   relays: string[];
@@ -262,6 +268,21 @@ const SiteDetailPage: FC<{
                 {props.source && (
                   <InfoRow label="source">
                     <a href={props.source}>{props.source}</a>
+                  </InfoRow>
+                )}
+                {props.client && (
+                  <InfoRow label="client">
+                    {props.client.href
+                      ? (
+                        <a href={props.client.href} title={props.client.tag}>
+                          {props.client.name}
+                        </a>
+                      )
+                      : (
+                        <span title={props.client.tag}>
+                          {props.client.name}
+                        </span>
+                      )}
                   </InfoRow>
                 )}
                 <InfoRow label="updated">
@@ -529,6 +550,7 @@ export async function siteStatusRoute(c: Context): Promise<Response> {
   const title = getManifestTitle(manifest);
   const description = getManifestDescription(manifest);
   const source = getManifestSource(manifest);
+  const client = getNsiteDeployClientReference(getManifestClient(manifest));
   const indexedSites = buildIndexedSites(eventStore.getTimeline({}));
   const indexedSite = parsed.type === "replaceable"
     ? indexedSites.find((site) =>
@@ -611,6 +633,7 @@ export async function siteStatusRoute(c: Context): Promise<Response> {
           title={title}
           description={description}
           source={source}
+          client={client}
           manifestServers={manifestServers}
           userServers={userServers ?? []}
           relays={relays}
