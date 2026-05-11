@@ -13,6 +13,7 @@ import {
 import app from "./src/server.ts";
 import { onShutdown } from "./src/helpers/shutdown.ts";
 import { getBlobVerifierPoolStats } from "./src/services/blob-verifier-pool.ts";
+import { startCurationService } from "./src/services/curation.ts";
 import { syncNsiteEvents } from "./src/services/nostr.ts";
 
 const RELAY_SYNC_INTERVAL_MS = 10 * 60 * 1000;
@@ -42,6 +43,8 @@ const server = Deno.serve(
   },
   app.fetch,
 );
+
+startCurationService();
 
 // Hydrate from nostr relays when set
 if (NOSTR_RELAYS && NOSTR_RELAYS.length > 0) {
@@ -74,8 +77,9 @@ if (NOSTR_RELAYS && NOSTR_RELAYS.length > 0) {
     }
   }, RELAY_SYNC_INTERVAL_MS);
 
-  onShutdown(async () => {
+  onShutdown(() => {
     clearInterval(syncTimer);
+    return Promise.resolve();
   });
 }
 

@@ -2,6 +2,7 @@
   "version": "5",
   "specifiers": {
     "jsr:@hono/hono@^4.12.9": "4.12.9",
+    "jsr:@std/assert@*": "1.0.19",
     "jsr:@std/assert@^1.0.14": "1.0.19",
     "jsr:@std/assert@^1.0.15": "1.0.19",
     "jsr:@std/assert@^1.0.17": "1.0.19",
@@ -10,10 +11,11 @@
     "jsr:@std/media-types@^1.1.0": "1.1.0",
     "jsr:@std/path@^1.1.4": "1.1.4",
     "jsr:@std/testing@^1.0.15": "1.0.17",
-    "npm:applesauce-common@next": "0.0.0-next-20260320153354",
-    "npm:applesauce-core@next": "0.0.0-next-20260320153354",
-    "npm:applesauce-loaders@next": "0.0.0-next-20260320153354",
-    "npm:applesauce-relay@next": "0.0.0-next-20260320153354",
+    "npm:applesauce-common@6": "6.0.1",
+    "npm:applesauce-core@6": "6.0.0",
+    "npm:applesauce-loaders@6": "6.0.0",
+    "npm:applesauce-relay@6": "6.0.0",
+    "npm:applesauce-signers@^6.0.1": "6.0.1_@capacitor+core@7.6.2",
     "npm:debug@^4.4.3": "4.4.3",
     "npm:rxjs@^7.8.2": "7.8.2",
     "npm:xbytes@^1.9.1": "1.9.1"
@@ -51,6 +53,12 @@
     }
   },
   "npm": {
+    "@capacitor/core@7.6.2": {
+      "integrity": "sha512-8HRKEUlYpCOeRec8bCHZwEA4o/E2q5dhHSd0v/Cr6+ume08fZY/gniF+ZCKF+6DO0T/nRaBeNRQn6Up+45J1mg==",
+      "dependencies": [
+        "tslib"
+      ]
+    },
     "@noble/ciphers@0.5.3": {
       "integrity": "sha512-B0+6IIHiqEs3BPMT0hcRmHvEj2QHOLu+uwt+tqDDeVd0oyVzh7BPrDcPjRnV1PV/5LaknXJJQvOuRGR0zQJz+w=="
     },
@@ -75,6 +83,9 @@
     "@noble/hashes@1.8.0": {
       "integrity": "sha512-jCs9ldd7NwzpgXDIf6P3+NrHh9/sD6CQdxHyjQI+h/6rDNo88ypBxxz45UDuZHz9r3tNz7N/VInSVoVdtXEI4A=="
     },
+    "@noble/secp256k1@1.7.2": {
+      "integrity": "sha512-/qzwYl5eFLH8OWIecQWM31qld2g1NfjgylK+TNhqtaUKP37Nm+Y+z30Fjhw0Ct8p9yCQEm2N3W/AckdIb3SMcQ=="
+    },
     "@scure/base@1.1.1": {
       "integrity": "sha512-ZxOhsSyxYwLJj3pLZCefNitxsj093tb2vq90mp2txoYeBqbcjDjqFhyM8eUjq/uFm6zJ+mUuqxlS2FkuSY1MTA=="
     },
@@ -96,8 +107,8 @@
         "@scure/base@1.1.1"
       ]
     },
-    "applesauce-common@0.0.0-next-20260320153354": {
-      "integrity": "sha512-KWHmRjMFTmpHM7f/LnK8NTf0gDyRjeJ37JxQhkmjLnuuFLDdfOdbr0T2MaES9mlwR2REIVGEmvaxFNqtB0ue1g==",
+    "applesauce-common@6.0.1": {
+      "integrity": "sha512-eACXtr/m5WvmnA2gUOQ+phvA6t5CtB0oSRmBNaMqi+BN9siLMjkG3lER8LliFD9I7PmK7hB5xBSqiVSezk6sJw==",
       "dependencies": [
         "@scure/base@1.2.6",
         "applesauce-core",
@@ -107,8 +118,8 @@
         "rxjs"
       ]
     },
-    "applesauce-core@0.0.0-next-20260320153354": {
-      "integrity": "sha512-hRVWNs0ERTNaQ2cBA9B4yRKYyjA1Il52lDTrMkDHIuVNVvNn7KnLk6QWtGKwQnnfsWTf0H56Hh0/mZitW8E31w==",
+    "applesauce-core@6.0.0": {
+      "integrity": "sha512-uibHa8AAaWf1MlgqRzDd4/DNptmKE/kcOue0ivO051HmBFHanSbuTNBLC21Yp7SymSLdhA4F4jl8rFppaNO6wg==",
       "dependencies": [
         "debug",
         "fast-deep-equal",
@@ -118,22 +129,35 @@
         "rxjs"
       ]
     },
-    "applesauce-loaders@0.0.0-next-20260320153354": {
-      "integrity": "sha512-ORb0pfC0VSvCPGubzU/rz9GmxWHsA2e1g9dsv8sD+50edPi0N0efKmoWCYr+c+qSPLTQHmIrdfxUwgUwpEVrGw==",
+    "applesauce-loaders@6.0.0": {
+      "integrity": "sha512-1GQ1EXxHJKqNUW87D/NSnsVcjNRETsRwUXptqu+bZFV+UOPkAEBo7qkgJTtmkkGs0efkyJAcFu94ZOtVQMwo3A==",
       "dependencies": [
         "applesauce-core",
         "nanoid",
         "rxjs"
       ]
     },
-    "applesauce-relay@0.0.0-next-20260320153354": {
-      "integrity": "sha512-Rc0lUuUl/MuHwzE5Kp/XXi9bTQT+xbh65esKn+m/w6loNVtph6ooMkcQ41lXpSH1HwdnqKtZ7c7TpdY32+HApA==",
+    "applesauce-relay@6.0.0": {
+      "integrity": "sha512-vemGZd62mPZbnvGqfUhFYhO4z2FpzicNNHZ3chyMy6btBWo0kt3qjOeSVO6N1wVzurlahE6xKfwVlQJGwQCZ3A==",
       "dependencies": [
         "@noble/hashes@1.8.0",
         "applesauce-core",
         "nanoid",
         "nostr-tools",
         "rxjs"
+      ]
+    },
+    "applesauce-signers@6.0.1_@capacitor+core@7.6.2": {
+      "integrity": "sha512-SV60zT7+kMdASEOUfOvNGSFQFjfXdGbhyAQvCMaN3S5JIMzbO8YMmf9BzyGJF+HoWZRi888xscXCgkAea6mUJw==",
+      "dependencies": [
+        "@noble/secp256k1",
+        "applesauce-core",
+        "debug",
+        "nanoid",
+        "rxjs"
+      ],
+      "optionalDependencies": [
+        "nostr-signer-capacitor-plugin"
       ]
     },
     "debug@4.4.3": {
@@ -157,9 +181,15 @@
     "ms@2.1.3": {
       "integrity": "sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA=="
     },
-    "nanoid@5.1.7": {
-      "integrity": "sha512-ua3NDgISf6jdwezAheMOk4mbE1LXjm1DfMUDMuJf4AqxLFK3ccGpgWizwa5YV7Yz9EpXwEaWoRXSb/BnV0t5dQ==",
+    "nanoid@5.1.11": {
+      "integrity": "sha512-v+KEsUv2ps74PaSKv0gHTxTCgMXOIfBEbaqa6w6ISIGC7ZsvHN4N9oJ8d4cmf0n5oTzQz2SLmThbQWhjd/8eKg==",
       "bin": true
+    },
+    "nostr-signer-capacitor-plugin@0.0.5_@capacitor+core@7.6.2": {
+      "integrity": "sha512-/EvqWz71HZ5cWmzvfXWTm48AWZtbeZDbOg3vLwXyXPjnIp1DR7Wurww/Mo41ORNu1DNPlqH20l7kIXKO6vR5og==",
+      "dependencies": [
+        "@capacitor/core"
+      ]
     },
     "nostr-tools@2.19.4": {
       "integrity": "sha512-qVLfoTpZegNYRJo5j+Oi6RPu0AwLP6jcvzcB3ySMnIT5DrAGNXfs5HNBspB/2HiGfH3GY+v6yXkTtcKSBQZwSg==",
@@ -194,10 +224,11 @@
       "jsr:@hono/hono@^4.12.9",
       "jsr:@std/media-types@^1.1.0",
       "jsr:@std/path@^1.1.4",
-      "npm:applesauce-common@next",
-      "npm:applesauce-core@next",
-      "npm:applesauce-loaders@next",
-      "npm:applesauce-relay@next",
+      "npm:applesauce-common@6",
+      "npm:applesauce-core@6",
+      "npm:applesauce-loaders@6",
+      "npm:applesauce-relay@6",
+      "npm:applesauce-signers@^6.0.1",
       "npm:debug@^4.4.3",
       "npm:rxjs@^7.8.2",
       "npm:xbytes@^1.9.1"

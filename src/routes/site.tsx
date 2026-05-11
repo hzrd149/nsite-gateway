@@ -3,13 +3,16 @@ import { html } from "@hono/hono/html";
 import { contentType } from "@std/media-types";
 import { extname } from "@std/path/posix";
 import { mergeBlossomServers } from "applesauce-common/helpers";
-import type { AddressPointer } from "applesauce-core/helpers";
 import { BLOSSOM_PROXY, BLOSSOM_SERVERS, ONION_HOST } from "../env.ts";
 import {
   createStrongEtag,
   hasMatchingIfNoneMatch,
 } from "../helpers/http-cache.ts";
-import { formatNsiteSubdomain } from "../helpers/nsite-host.ts";
+import {
+  formatNsiteSubdomain,
+  formatSnapshotSubdomain,
+} from "../helpers/nsite-host.ts";
+import type { ResolvedSiteAddress } from "../helpers/resolved-site.ts";
 import {
   getManifestPaths,
   getManifestServers,
@@ -24,12 +27,15 @@ import { getManifest, getUserBlossomServers } from "../services/nostr.ts";
 
 function appendOnionLocation(
   headers: Headers,
+  site?: ResolvedSiteAddress,
   pubkey?: string,
   identifier = "",
 ) {
   if (!ONION_HOST) return;
   const url = new URL(ONION_HOST);
-  const subdomain = pubkey
+  const subdomain = site?.type === "snapshot"
+    ? formatSnapshotSubdomain(site.id)
+    : pubkey
     ? formatNsiteSubdomain(pubkey, identifier)
     : undefined;
   if (subdomain) {
@@ -44,18 +50,19 @@ function getSiteLastModified(createdAt: number): string {
 
 export async function handleSiteRequest(
   c: Context,
-  site: AddressPointer,
+  site: ResolvedSiteAddress,
 ): Promise<Response> {
   const request = c.req.raw;
   const url = new URL(request.url);
   const method = request.method === "HEAD" ? "HEAD" : "GET";
-  const { pubkey, identifier } = site;
+  const pubkey = site.type === "replaceable" ? site.pubkey : undefined;
+  const identifier = site.type === "replaceable" ? site.identifier : "";
 
-  // Load the users blossom servers and manifest event in parallel
-  const [userServers, manifest] = await Promise.all([
-    getUserBlossomServers(pubkey, 10_000),
-    getManifest(site, 10_000),
-  ]);
+  const manifest = await getManifest(site, 10_000);
+
+  const userServers = manifest
+    ? await getUserBlossomServers(manifest.pubkey, 10_000)
+    : undefined;
 
   if (!manifest) {
     return c.html(
@@ -85,7 +92,7 @@ export async function handleSiteRequest(
 
   // Count hits for .html pages (including 404.html)
   if (match.path.endsWith(".html")) {
-    void incrementHitCount(pubkey, identifier ?? "");
+    void incrementHitCount(manifest.pubkey, identifier);
   }
 
   // If the request path is found, create a strong etag and check if the client has a matching if-none-match header
@@ -95,7 +102,7 @@ export async function handleSiteRequest(
     headers.set("ETag", etag);
     headers.set("Cache-Control", "public, max-age=3600");
     headers.set("Last-Modified", getSiteLastModified(manifest.created_at));
-    appendOnionLocation(headers, pubkey, identifier);
+    appendOnionLocation(headers, site, manifest.pubkey, identifier);
     return new Response(null, { status: 304, headers });
   }
 
@@ -160,7 +167,7 @@ export async function handleSiteRequest(
     upstream.headers.get("last-modified") ||
       getSiteLastModified(manifest.created_at),
   );
-  appendOnionLocation(headers, pubkey, identifier);
+  appendOnionLocation(headers, site, manifest.pubkey, identifier);
 
   // Set response status
   const status = match.is404

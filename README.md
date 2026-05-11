@@ -4,8 +4,8 @@ A Deno + Hono gateway that serves
 [static websites published on Nostr](https://github.com/nostr-protocol/nips/blob/master/5A.md)
 (the nsite protocol).
 
-Sites are identified by site manifest events (kind `15128` for root sites and
-kind `35128` for named sites) and blobs served via
+Sites are identified by site manifest events (kind `15128` for root sites, kind
+`35128` for named sites, and kind `5128` for snapshots) and blobs served via
 [Blossom](https://github.com/hzrd149/blossom).
 
 ## Configuring
@@ -19,23 +19,25 @@ cp .env.example .env
 
 ### Environment Variables
 
-| Variable                 | Default                                    | Description                                                                                                                                                         |
-| ------------------------ | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `LOOKUP_RELAYS`          | `wss://user.kindpag.es,wss://purplepag.es` | Comma-separated relays used to look up a user's NIP-65 relay list (kind `10002`) and blossom server list (kind `10063`)                                             |
-| `NOSTR_RELAYS`           | _(none)_                                   | Extra relays added to every event query, supplemental to the user's own outbox relays                                                                               |
-| `CACHE_RELAYS`           | _(auto-detect `ws://localhost:4869`)_      | Relays to persist all fetched events to (a local Nostr cache relay). Auto-detected if a relay is running on `localhost:4869`                                        |
-| `BLOSSOM_SERVERS`        | _(none)_                                   | Comma-separated fallback blossom servers used when a user has no `10063` event and the manifest has no `server` tags                                                |
-| `BLOSSOM_PROXY`          | _(auto-detect `http://localhost:24242`)_   | Optional upstream blossom proxy checked first for every blob (see [Blossom Proxy](#blossom-proxy)). Auto-detected if a proxy is running on `localhost:24242`        |
-| `MAX_FILE_SIZE`          | `128 MB`                                   | Maximum blob size to serve (e.g. `"2 MB"`). Enforced via `Content-Length` header and during streaming                                                               |
-| `CACHE_PATH`             | _(Deno default KV location)_               | File path for the persistent Deno KV store (e.g. `./data/cache`). Omit to use Deno's default location                                                               |
-| `CACHE_TIME`             | `3600`                                     | TTL in seconds for all KV cache entries (DNS lookups, blob server hints, user profiles)                                                                             |
-| `BLOB_SERVER_TTL`        | `604800`                                   | TTL in seconds for the preferred verified blob source cache (`["blob-server", sha256]`), allowing trusted sources to stick around longer than general cache entries |
-| `BLOB_BAD_SOURCE_TTL`    | `86400`                                    | TTL in seconds for a bad `(sha256, server)` verification result before that source is eligible to be retried for the blob                                           |
-| `VERIFY_WORKER_POOL_MAX` | `4`                                        | Maximum number of blob verification workers created dynamically to hash responses in parallel                                                                       |
-| `PUBLIC_DOMAIN`          | _(none)_                                   | The gateway's own public domain. When set, it is used for constructing canonical site URLs on the homepage and status pages                                         |
-| `NSITE_HOST`             | `0.0.0.0`                                  | IP address the server binds to                                                                                                                                      |
-| `NSITE_PORT`             | `3000`                                     | Port the server listens on                                                                                                                                          |
-| `ONION_HOST`             | _(none)_                                   | If set to a `.onion` URL, every nsite response includes an `Onion-Location` header pointing to the Tor mirror                                                       |
+| Variable                 | Default                                    | Description                                                                                                                                                                                                                                                                                                                                                  |
+| ------------------------ | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `LOOKUP_RELAYS`          | `wss://user.kindpag.es,wss://purplepag.es` | Comma-separated relays used to look up a user's NIP-65 relay list (kind `10002`) and blossom server list (kind `10063`)                                                                                                                                                                                                                                      |
+| `NOSTR_RELAYS`           | _(none)_                                   | Extra relays added to every event query, supplemental to the user's own outbox relays                                                                                                                                                                                                                                                                        |
+| `CACHE_RELAYS`           | _(auto-detect `ws://localhost:4869`)_      | Relays to persist all fetched events to (a local Nostr cache relay). Auto-detected if a relay is running on `localhost:4869`                                                                                                                                                                                                                                 |
+| `BLOSSOM_SERVERS`        | _(none)_                                   | Comma-separated fallback blossom servers used when a user has no `10063` event and the manifest has no `server` tags                                                                                                                                                                                                                                         |
+| `BLOSSOM_PROXY`          | _(auto-detect `http://localhost:24242`)_   | Optional upstream blossom proxy checked first for every blob (see [Blossom Proxy](#blossom-proxy)). Auto-detected if a proxy is running on `localhost:24242`                                                                                                                                                                                                 |
+| `MAX_FILE_SIZE`          | `128 MB`                                   | Maximum blob size to serve (e.g. `"2 MB"`). Enforced via `Content-Length` header and during streaming                                                                                                                                                                                                                                                        |
+| `CACHE_PATH`             | _(Deno default KV location)_               | File path for the persistent Deno KV store (e.g. `./data/cache`). Omit to use Deno's default location                                                                                                                                                                                                                                                        |
+| `CACHE_TIME`             | `3600`                                     | TTL in seconds for all KV cache entries (DNS lookups, blob server hints, user profiles)                                                                                                                                                                                                                                                                      |
+| `BLOB_SERVER_TTL`        | `604800`                                   | TTL in seconds for the preferred verified blob source cache (`["blob-server", sha256]`), allowing trusted sources to stick around longer than general cache entries                                                                                                                                                                                          |
+| `BLOB_BAD_SOURCE_TTL`    | `86400`                                    | TTL in seconds for a bad `(sha256, server)` verification result before that source is eligible to be retried for the blob                                                                                                                                                                                                                                    |
+| `VERIFY_WORKER_POOL_MAX` | `4`                                        | Maximum number of blob verification workers created dynamically to hash responses in parallel                                                                                                                                                                                                                                                                |
+| `PUBLIC_DOMAIN`          | _(none)_                                   | The gateway's own public domain. When set, it is used for constructing canonical site URLs on the homepage and status pages                                                                                                                                                                                                                                  |
+| `NSITE_HOST`             | `0.0.0.0`                                  | IP address the server binds to                                                                                                                                                                                                                                                                                                                               |
+| `NSITE_PORT`             | `3000`                                     | Port the server listens on                                                                                                                                                                                                                                                                                                                                   |
+| `ONION_HOST`             | _(none)_                                   | If set to a `.onion` URL, every nsite response includes an `Onion-Location` header pointing to the Tor mirror                                                                                                                                                                                                                                                |
+| `CURATION_USER`          | _(none)_                                   | Hex pubkey of a curator whose [NIP-51 mute list](https://github.com/nostr-protocol/nips/blob/master/51.md) (kind `10000`) is loaded into the in-memory event store at startup and refreshed on a timer. Sites whose author pubkey appears in **public** `p` tags on that list are omitted from the home page (encrypted mutes in `content` are not applied). |
+| `CURATION_REFRESH`       | `600` (10 min)                             | How often to re-fetch the curator mute list, in seconds                                                                                                                                                                                                                                                                                                      |
 
 ## Running with Deno
 
@@ -53,9 +55,13 @@ The Deno tasks already include the required flags (`--unstable-kv`,
 `--env-file=.env`, and the necessary permission flags).
 
 If `NOSTR_RELAYS` is set, the gateway will bulk-fetch all known site manifests
-(kinds `15128` and `35128`) from those relays at startup, pre-populating the
-in-memory event store, and then re-check those relays every 10 minutes for newer
-manifest events.
+(kinds `15128`, `35128`, and `5128`) from those relays at startup,
+pre-populating the in-memory event store, and then re-check those relays every
+10 minutes for newer manifest events.
+
+If `CURATION_USER` is set, the gateway loads that user's mute list via the same
+event loader used elsewhere, keeps it in `eventStore`, and refreshes it on the
+interval given by `CURATION_REFRESH` in seconds (independent of `NOSTR_RELAYS`).
 
 ## Cache Backends
 
@@ -146,11 +152,14 @@ The gateway resolves incoming hostnames to a Nostr site using three strategies
 1. **npub subdomain** — `npub1abc....nsite.example.com`: the leftmost label is a
    valid bech32 `npub`, decoded to a hex pubkey. Serves the root site (kind
    `15128`).
-2. **Named site label** — a 50-character base36-encoded pubkey followed by a
+2. **Snapshot label** — `v<50-char-base36-event-id>.nsite.example.com`: the
+   leftmost label starts with `v` and is followed by a 50-character base36
+   snapshot event id. Serves the exact snapshot event (kind `5128`).
+3. **Named site label** — a 50-character base36-encoded pubkey followed by a
    1–13 character site identifier (e.g.
    `<base36pubkey><identifier>.nsite.example.com`). Serves a named site (kind
    `35128`).
-3. **CNAME resolution** — if the hostname doesn't parse directly as an nsite
+4. **CNAME resolution** — if the hostname doesn't parse directly as an nsite
    label, the gateway resolves CNAME records. This enables custom domains like
    `myblog.com → npub1abc....nsite.example.com`.
 
@@ -170,8 +179,9 @@ The gateway serves a built-in status dashboard at `/status`:
 - **`GET /status`** — table of all site manifests currently loaded in the event
   store, with titles, authors, path counts, and last-updated timestamps.
 - **`GET /status/:address`** — detailed view for any `npub`, `naddr`,
-  `nprofile`, or raw hex pubkey: site metadata, relays, blossom servers, full
-  path table with cached server info, and the raw manifest JSON.
+  `nprofile`, raw hex pubkey, or `v<snapshotIdB36>` snapshot id: site metadata,
+  relays, blossom servers, full path table with cached server info, and the raw
+  manifest JSON.
 
 Status pages are always `Cache-Control: no-store`.
 

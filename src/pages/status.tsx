@@ -1,6 +1,6 @@
 import type { FC } from "@hono/hono/jsx";
 import { formatAgeFromUnix } from "../helpers/format.ts";
-import { naddrEncode } from "applesauce-core/helpers";
+import { naddrEncode, neventEncode } from "applesauce-core/helpers";
 import { NAMED_SITE_MANIFEST_KIND } from "../helpers/site-manifest.ts";
 
 export type StatusSite = {
@@ -17,6 +17,9 @@ export type StatusSite = {
   npub: string;
   authorName?: string;
   hits?: number;
+  snapshotCount: number;
+  latestSnapshotId?: string;
+  latestSnapshotCreatedAt?: number;
 };
 
 function pluralize(count: number, singular: string, plural: string): string {
@@ -27,9 +30,15 @@ function formatTimestamp(createdAt: number): string {
   return new Date(createdAt * 1000).toISOString().replace(".000Z", "Z");
 }
 
+/** Newest of manifest publish time vs latest snapshot (manifest-only republish still moves this). */
+function siteDisplayUpdatedAt(site: StatusSite): number {
+  return Math.max(site.createdAt, site.latestSnapshotCreatedAt ?? 0);
+}
+
 const SiteRow: FC<{ site: StatusSite }> = ({ site }) => {
   const label = site.title || site.identifier ||
     site.npub.slice(0, 8) + "..." + site.npub.slice(-4);
+  const updatedAt = siteDisplayUpdatedAt(site);
   const statusAddress = site.identifier
     ? naddrEncode({
       pubkey: site.pubkey,
@@ -38,6 +47,10 @@ const SiteRow: FC<{ site: StatusSite }> = ({ site }) => {
     })
     : site.npub;
   const statusHref = `/status/${statusAddress}`;
+  const latestSnapshotHref = site.latestSnapshotId
+    ? `/status/${neventEncode({ id: site.latestSnapshotId })}`
+    : undefined;
+
   return (
     <tr>
       <td data-label="site">
@@ -52,9 +65,22 @@ const SiteRow: FC<{ site: StatusSite }> = ({ site }) => {
       <td data-label="paths">
         <a href={statusHref}>{pluralize(site.pathCount, "path", "paths")}</a>
       </td>
+      <td data-label="snapshots">
+        {site.snapshotCount > 0
+          ? (
+            latestSnapshotHref
+              ? <a href={latestSnapshotHref}>{site.snapshotCount}</a>
+              : (
+                site.snapshotCount
+              )
+          )
+          : (
+            0
+          )}
+      </td>
       <td data-label="hits">{site.hits ?? 0}</td>
-      <td data-label="updated" title={formatTimestamp(site.createdAt)}>
-        {formatAgeFromUnix(site.createdAt)}
+      <td data-label="updated" title={formatTimestamp(updatedAt)}>
+        {formatAgeFromUnix(updatedAt)}
       </td>
     </tr>
   );
@@ -75,12 +101,11 @@ export const StatusPage: FC<{ sites: StatusSite[]; host: string }> = (
       <body>
         <main class="wide">
           <header>
-            <h1>Known cached sites</h1>
+            <h1>Known sites</h1>
             <a href="/">&larr; back to gateway</a>
             <p class="meta">
-              {pluralize(sites.length, "cached site", "cached sites")} on {host}
-              {" "}
-              | generated {generatedAt}
+              {pluralize(sites.length, "site", "sites")} available through{" "}
+              {host} | generated {generatedAt}
             </p>
           </header>
           <table>
@@ -89,6 +114,7 @@ export const StatusPage: FC<{ sites: StatusSite[]; host: string }> = (
                 <th>site</th>
                 <th>author</th>
                 <th>paths</th>
+                <th>snapshots</th>
                 <th>hits</th>
                 <th>updated</th>
               </tr>
@@ -97,7 +123,9 @@ export const StatusPage: FC<{ sites: StatusSite[]; host: string }> = (
               {sites.length === 0
                 ? (
                   <tr>
-                    <td colspan={6}>No cached sites yet.</td>
+                    <td colspan={6}>
+                      No sites available through this gateway yet.
+                    </td>
                   </tr>
                 )
                 : (

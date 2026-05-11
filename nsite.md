@@ -125,11 +125,16 @@ For interoperability, host servers SHOULD use the following canonical URL
 formats:
 
 - Root site: `<npub>.nsite-host.com`
+- Snapshot: `v<snapshotIdB36>.nsite-host.com`
 - Named site: `<pubkeyB36><dTag>.nsite-host.com`
 
 `pubkeyB36` is the author's raw 32-byte pubkey encoded with base36 (lowercase,
 digits `0-9` then letters `a-z`, no padding) and is always exactly 50
 characters.
+
+`snapshotIdB36` is the raw 32-byte snapshot event id encoded with base36
+(lowercase, digits `0-9` then letters `a-z`, no padding) and is always exactly
+50 characters.
 
 `dTag` is the site identifier (`d` tag value) as plain text. It is appended
 directly after `pubkeyB36` with no separator.
@@ -150,6 +155,7 @@ Example subdomains:
 
 - Root site:
   `npub10phxfsms72rhafrklqdyhempujs9h67nye0p67qe424dyvcx0dkqgvap0e.nsite-host.com`
+- Snapshot: `v<50-char-snapshotIdB36>.nsite-host.com`
 - Named site: `<50-char-pubkeyB36><dTag>.nsite-host.com`
 
 #### Resolving Paths
@@ -164,7 +170,10 @@ label as follows:
 
 1. If the label is a valid `npub`, decode it and query for the root site
    manifest.
-2. Otherwise, if the label matches `^[0-9a-z]{50}[a-z0-9-]{1,13}$` and does not
+2. Otherwise, if the label matches `^v[0-9a-z]{50}$`, decode the final 50
+   characters as a 32-byte snapshot event id and query for that exact snapshot
+   event (kind `5128`).
+3. Otherwise, if the label matches `^[0-9a-z]{50}[a-z0-9-]{1,13}$` and does not
    end with `-`, treat it as a named-site label where:
    - `pubkeyB36` is the first 50 characters
    - `dTag` is the remaining 1-13 characters
@@ -178,6 +187,9 @@ The host server should query for the site manifest event:
 ```jsonc
 // For root site (kind 15128, no d tag)
 { "kinds": [15128], "authors": [<pubkey>] }
+
+// For snapshot (kind 5128, exact id)
+{ "ids": [<snapshot-id>], "kinds": [5128] }
 
 // For named site (kind 35128, with d tag)
 { "kinds": [35128], "authors": [<pubkey>], "#d": [<identifier>] }

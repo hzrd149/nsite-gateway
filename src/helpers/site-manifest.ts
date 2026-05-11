@@ -12,8 +12,54 @@ import {
 
 export const ROOT_SITE_MANIFEST_KIND = 15128;
 export const NAMED_SITE_MANIFEST_KIND = 35128;
+export const MANIFEST_SNAPSHOT_KIND = 5128;
 
 export const ManifestPathsSymbol = Symbol.for("ManifestPaths");
+
+export type ManifestAddress = {
+  kind: number;
+  pubkey: string;
+  identifier: string;
+};
+
+export function isSiteManifestKind(kind: number): boolean {
+  return kind === ROOT_SITE_MANIFEST_KIND || kind === NAMED_SITE_MANIFEST_KIND;
+}
+
+export function isSnapshotManifest(manifest: NostrEvent): boolean {
+  return manifest.kind === MANIFEST_SNAPSHOT_KIND;
+}
+
+export function getManifestAddressKey(address: ManifestAddress): string {
+  return `${address.kind}:${address.pubkey}:${address.identifier}`;
+}
+
+export function parseManifestAddress(
+  value: string,
+): ManifestAddress | undefined {
+  const match = value.match(/^(\d+):([0-9a-f]{64}):(.*)$/i);
+  if (!match) return undefined;
+
+  const kind = Number(match[1]);
+  const pubkey = match[2].toLowerCase();
+  const identifier = match[3] ?? "";
+  if (!Number.isInteger(kind)) return undefined;
+
+  return { kind, pubkey, identifier };
+}
+
+export function getSnapshotParentAddress(
+  manifest: NostrEvent,
+): ManifestAddress | undefined {
+  if (!isSnapshotManifest(manifest)) return undefined;
+
+  const value = manifest.tags.find((tag) => tag[0] === "a" && tag[1])?.[1];
+  if (!value) return undefined;
+
+  const parsed = parseManifestAddress(value);
+  if (!parsed || !isSiteManifestKind(parsed.kind)) return undefined;
+  return parsed;
+}
 
 /** Gets the path map of a manifest event */
 export function getManifestPaths(manifest: NostrEvent): Map<string, string> {

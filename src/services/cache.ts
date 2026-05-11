@@ -1,11 +1,11 @@
 import { dirname } from "@std/path/posix";
-import type { AddressPointer } from "applesauce-core/helpers";
 import {
   BLOB_BAD_SOURCE_TTL,
   BLOB_SERVER_TTL,
   CACHE_PATH,
   CACHE_TIME,
 } from "../env.ts";
+import type { ResolvedSiteAddress } from "../helpers/resolved-site.ts";
 import logger from "../helpers/debug.ts";
 import { onShutdown } from "../helpers/shutdown.ts";
 
@@ -31,13 +31,16 @@ onShutdown(async () => {
 
 /** Gets the resolved nsite pointer for a domain */
 export async function getDNSPubkey(domain: string) {
-  const entry = await cache.get<AddressPointer>(["dns", domain]);
+  const entry = await cache.get<ResolvedSiteAddress>(["dns", domain]);
 
   return entry.value;
 }
 
 /** Sets the resolved nsite pointer for a domain */
-export async function setDNSPubkey(domain: string, pointer: AddressPointer) {
+export async function setDNSPubkey(
+  domain: string,
+  pointer: ResolvedSiteAddress,
+) {
   return await cache.set(["dns", domain], pointer, {
     expireIn: CACHE_TIME * 1000,
   });

@@ -1,15 +1,12 @@
-import {
-  type AddressPointer,
-  decodePointer,
-  npubEncode,
-} from "applesauce-core/helpers";
+import { decodePointer, npubEncode } from "applesauce-core/helpers";
+import { decodeHex32B36, encodeHex32B36 } from "./base36.ts";
+import type { ResolvedSiteAddress } from "./resolved-site.ts";
 import {
   NAMED_SITE_MANIFEST_KIND,
   ROOT_SITE_MANIFEST_KIND,
 } from "./site-manifest.ts";
 
 const CANONICAL_PUBKEY_LENGTH = 50;
-const MAX_PUBKEY = (1n << 256n) - 1n;
 
 export const CANONICAL_SITE_IDENTIFIER = /^(?=.{1,13}$)[a-z0-9-]*[a-z0-9]$/;
 
@@ -22,33 +19,12 @@ function decodeNpub(npub: string): string | undefined {
   }
 }
 
-function base36Digit(char: string): bigint | undefined {
-  const code = char.charCodeAt(0);
-  if (code >= 48 && code <= 57) return BigInt(code - 48);
-  if (code >= 97 && code <= 122) return BigInt(code - 87);
-  return undefined;
-}
-
 export function decodePubkeyB36(pubkeyB36: string): string | undefined {
-  if (!/^[0-9a-z]{50}$/.test(pubkeyB36)) return undefined;
-
-  let value = 0n;
-  for (const char of pubkeyB36) {
-    const digit = base36Digit(char);
-    if (digit === undefined) return undefined;
-    value = value * 36n + digit;
-    if (value > MAX_PUBKEY) return undefined;
-  }
-
-  return value.toString(16).padStart(64, "0");
+  return decodeHex32B36(pubkeyB36);
 }
 
 export function encodePubkeyB36(pubkey: string): string | undefined {
-  if (!/^[0-9a-f]{64}$/i.test(pubkey)) return undefined;
-
-  const value = BigInt(`0x${pubkey}`);
-  if (value > MAX_PUBKEY) return undefined;
-  return value.toString(36).padStart(CANONICAL_PUBKEY_LENGTH, "0");
+  return encodeHex32B36(pubkey);
 }
 
 function parseCanonicalSiteLabel(label: string) {
@@ -65,7 +41,7 @@ function parseCanonicalSiteLabel(label: string) {
 
 export function parseNsiteHostname(
   hostname: string,
-): AddressPointer | undefined {
+): ResolvedSiteAddress | undefined {
   const parts = hostname.toLowerCase().split(".").filter(Boolean);
   const label = parts[0];
   if (!label) return undefined;
@@ -73,16 +49,34 @@ export function parseNsiteHostname(
   const rootPubkey = decodeNpub(label);
   if (rootPubkey) {
     return {
+      type: "replaceable",
       pubkey: rootPubkey,
       identifier: "",
       kind: ROOT_SITE_MANIFEST_KIND,
     };
   }
 
+  if (/^v[0-9a-z]{50}$/.test(label)) {
+    const id = decodeHex32B36(label.slice(1));
+    if (id) return { type: "snapshot", id };
+  }
+
   const canonical = parseCanonicalSiteLabel(label);
-  if (canonical) return { ...canonical, kind: NAMED_SITE_MANIFEST_KIND };
+  if (canonical) {
+    return {
+      type: "replaceable",
+      ...canonical,
+      kind: NAMED_SITE_MANIFEST_KIND,
+    };
+  }
 
   return undefined;
+}
+
+export function formatSnapshotSubdomain(eventId: string): string | undefined {
+  const eventIdB36 = encodeHex32B36(eventId);
+  if (!eventIdB36) return undefined;
+  return `v${eventIdB36}`;
 }
 
 export function formatNsiteSubdomain(

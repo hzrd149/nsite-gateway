@@ -1,10 +1,26 @@
 # nsite-gateway
 
-## 3.3.2
+## 3.5.1
 
 ### Patch Changes
 
 - Sync kind 5 delete events during relay hydration and periodic nsite sync
+
+## 3.5.0
+
+### Minor Changes
+
+- Add support for curation
+
+### Patch Changes
+
+- Pin applesauce version to v6
+
+## 3.4.0
+
+### Minor Changes
+
+- Add support for site snapshots
 
 ## 3.3.0
 

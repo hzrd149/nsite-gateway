@@ -1,6 +1,6 @@
-import { AddressPointer } from "applesauce-core/helpers";
 import logger from "../helpers/debug.ts";
 import { parseNsiteHostname } from "../helpers/nsite-host.ts";
+import type { ResolvedSiteAddress } from "../helpers/resolved-site.ts";
 import { getDNSPubkey, setDNSPubkey } from "./cache.ts";
 
 const log = logger.extend("dns");
@@ -21,8 +21,8 @@ async function getCnameRecords(hostname: string): Promise<string[]> {
 export async function resolvePubkeyFromHostname(
   hostname: string,
   resolveDns: ResolveDns = getCnameRecords,
-): Promise<AddressPointer | undefined> {
-  if (hostname === "localhost") return undefined;
+): Promise<ResolvedSiteAddress | undefined> {
+  if (hostname === "localhost" || hostname === "127.0.0.1") return undefined;
 
   const cached = await getDNSPubkey(hostname);
   if (cached) return cached;
@@ -45,7 +45,9 @@ export async function resolvePubkeyFromHostname(
   }
 
   log(
-    `Resolved ${hostname} to ${resolved.pubkey} with identifier "${resolved.identifier}"`,
+    resolved.type === "replaceable"
+      ? `Resolved ${hostname} to ${resolved.pubkey} with identifier "${resolved.identifier}"`
+      : `Resolved ${hostname} to snapshot ${resolved.id}`,
   );
   await setDNSPubkey(hostname, resolved);
 
