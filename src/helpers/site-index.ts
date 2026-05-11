@@ -1,6 +1,7 @@
 import type { NostrEvent } from "applesauce-core/helpers";
 import {
   getManifestAddressKey,
+  getManifestClient,
   getManifestDescription,
   getManifestIdentifier,
   getManifestPaths,
@@ -27,6 +28,7 @@ export type IndexedSite = {
   kind: number;
   title?: string;
   description?: string;
+  client?: string;
   pathCount: number;
   manifestId: string;
   createdAt: number;
@@ -86,6 +88,7 @@ export function buildIndexedSites(events: NostrEvent[]): IndexedSite[] {
       kind: event.kind,
       title: getManifestTitle(event),
       description: getManifestDescription(event),
+      client: getManifestClient(event),
       pathCount: getManifestPaths(event).size,
       manifestId: event.id,
       createdAt: event.created_at,

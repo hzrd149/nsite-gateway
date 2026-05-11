@@ -7,6 +7,7 @@ import { eventStore, getUserProfile } from "../../services/nostr.ts";
 import { npubEncode } from "applesauce-core/helpers";
 import { StatusPage, type StatusSite } from "../../pages/status.tsx";
 import { getHitCount } from "../../services/analytics.ts";
+import { getNsiteDeployClientReference } from "../../nsite-clients.ts";
 
 function getStatusSites(host: string, protocol: string): StatusSite[] {
   const muted = getCurationMutedPubkeys();
@@ -30,6 +31,7 @@ function getStatusSites(host: string, protocol: string): StatusSite[] {
       hostname: siteHostname,
       href: siteHostname ? `${protocol}//${siteHostname}/` : undefined,
       npub: npubEncode(site.pubkey),
+      client: getNsiteDeployClientReference(site.client),
       snapshotCount: site.snapshots.length,
       latestSnapshotId: site.snapshots[0]?.id,
       latestSnapshotCreatedAt: site.snapshots[0]?.createdAt,

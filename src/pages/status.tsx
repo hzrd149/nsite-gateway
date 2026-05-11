@@ -2,6 +2,7 @@ import type { FC } from "@hono/hono/jsx";
 import { formatAgeFromUnix } from "../helpers/format.ts";
 import { naddrEncode, neventEncode } from "applesauce-core/helpers";
 import { NAMED_SITE_MANIFEST_KIND } from "../helpers/site-manifest.ts";
+import type { NsiteDeployClientReference } from "../nsite-clients.ts";
 
 export type StatusSite = {
   key: string;
@@ -15,6 +16,7 @@ export type StatusSite = {
   hostname?: string;
   href?: string;
   npub: string;
+  client?: NsiteDeployClientReference;
   authorName?: string;
   hits?: number;
   snapshotCount: number;
@@ -61,6 +63,19 @@ const SiteRow: FC<{ site: StatusSite }> = ({ site }) => {
           {site.authorName ||
             site.npub.slice(0, 8) + "..." + site.npub.slice(-4)}
         </span>
+      </td>
+      <td data-label="client">
+        {site.client
+          ? (
+            site.client.href
+              ? (
+                <a href={site.client.href} title={site.client.tag}>
+                  {site.client.name}
+                </a>
+              )
+              : <span title={site.client.tag}>{site.client.name}</span>
+          )
+          : <span class="none">—</span>}
       </td>
       <td data-label="paths">
         <a href={statusHref}>{pluralize(site.pathCount, "path", "paths")}</a>
@@ -113,6 +128,7 @@ export const StatusPage: FC<{ sites: StatusSite[]; host: string }> = (
               <tr>
                 <th>site</th>
                 <th>author</th>
+                <th>client</th>
                 <th>paths</th>
                 <th>snapshots</th>
                 <th>hits</th>
@@ -123,7 +139,7 @@ export const StatusPage: FC<{ sites: StatusSite[]; host: string }> = (
               {sites.length === 0
                 ? (
                   <tr>
-                    <td colspan={6}>
+                    <td colspan={7}>
                       No sites available through this gateway yet.
                     </td>
                   </tr>
