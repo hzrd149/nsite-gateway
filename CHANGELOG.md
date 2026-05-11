@@ -1,5 +1,11 @@
 # nsite-gateway
 
+## 3.6.0
+
+### Minor Changes
+
+- Show the deploy client (e.g. nsyte) used to publish an nsite in status views, with links to known clients
+
 ## 3.5.1
 
 ### Patch Changes
