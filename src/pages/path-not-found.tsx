@@ -72,7 +72,7 @@ export const PathNotFound: FC<PathNotFoundProps> = (
         This nsite does not publish a file at this path and has no custom 404
         page. If you own this site, publish the missing file or add a{" "}
         <code>/404.html</code> fallback using{" "}
-        <a href="https://github.com/nichenqin/nsyte">nsyte</a>.
+        <a href="https://github.com/sandwichfarm/nsyte">nsyte</a>.
       </p>
       {paths.length > 0 && (
         <section>
