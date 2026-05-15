@@ -147,11 +147,14 @@ export async function handleSiteRequest(
 
   // Create response headers
   const headers = new Headers();
-  const mime = contentType(extname(match.path));
-  headers.set(
-    "content-type",
-    mime || upstream.headers.get("content-type") || "application/octet-stream",
-  );
+  const upstreamContentType = upstream.headers.get("content-type");
+  const upstreamContentLength = upstream.headers.get("content-length");
+  if (upstreamContentType) {
+    headers.set("content-type", upstreamContentType);
+  } else if (!upstreamContentLength) {
+    const mime = contentType(extname(match.path));
+    if (mime) headers.set("content-type", mime);
+  }
 
   // Copy response headers from the upstream response
   for (const name of ["content-length", "accept-ranges", "content-range"]) {
