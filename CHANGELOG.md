@@ -1,5 +1,11 @@
 # nsite-gateway
 
+## 3.6.2
+
+### Patch Changes
+
+- Update nsyte link int 404 page
+
 ## 3.6.1
 
 ### Patch Changes
