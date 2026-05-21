@@ -2,6 +2,7 @@ import logger from "../helpers/debug.ts";
 import { parseNsiteHostname } from "../helpers/nsite-host.ts";
 import type { ResolvedSiteAddress } from "../helpers/resolved-site.ts";
 import { getDNSPubkey, setDNSPubkey } from "./cache.ts";
+import { isNamecoinHostname, resolveNamecoinHostname } from "./namecoin.ts";
 
 const log = logger.extend("dns");
 
@@ -28,6 +29,10 @@ export async function resolvePubkeyFromHostname(
   if (cached) return cached;
 
   let resolved = parseNsiteHostname(hostname);
+
+  if (!resolved && isNamecoinHostname(hostname)) {
+    resolved = await resolveNamecoinHostname(hostname);
+  }
 
   if (!resolved) {
     for (const cname of await resolveDns(hostname, "CNAME")) {
