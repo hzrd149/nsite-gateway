@@ -159,7 +159,17 @@ The gateway resolves incoming hostnames to a Nostr site using three strategies
    1–13 character site identifier (e.g.
    `<base36pubkey><identifier>.nsite.example.com`). Serves a named site (kind
    `35128`).
-4. **CNAME resolution** — if the hostname doesn't parse directly as an nsite
+4. **Namecoin `.bit` resolution** — if the hostname ends in `.bit`, the gateway
+   queries Namecoin ElectrumX servers (over WSS) for the latest `NAME_UPDATE`
+   value of `d/<name>` and extracts a nostr pubkey from the resulting JSON. Both
+   the simple `"nostr": "<hex>"` form and the extended NIP-05 form
+   (`{ "nostr": { "names": { "_": "<hex>" } } }`) are accepted, matching the
+   spec draft at
+   [nostr-protocol/nips#2349](https://github.com/nostr-protocol/nips/pull/2349).
+   Operators don't need to run a local Namecoin node — the gateway uses public
+   ElectrumX servers by default and can be pointed at others via
+   `NSITE_NAMECOIN_ELECTRUMX_SERVERS` (comma-separated `wss://host:port`).
+5. **CNAME resolution** — if the hostname doesn't parse directly as an nsite
    label, the gateway resolves CNAME records. This enables custom domains like
    `myblog.com → npub1abc....nsite.example.com`.
 
