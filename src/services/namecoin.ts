@@ -6,6 +6,7 @@ import {
   ROOT_SITE_MANIFEST_KIND,
 } from "../helpers/site-manifest.ts";
 import { getDNSPubkey, setDNSPubkey } from "./cache.ts";
+import { expandImports, type NamecoinValueFetcher } from "./namecoin-import.ts";
 
 const log = logger.extend("namecoin");
 
@@ -370,7 +371,15 @@ export async function resolveNamecoinHostname(
     return undefined;
   }
 
-  const resolved = resolveFromNamecoinValue(rawValue);
+  // Some Namecoin records delegate shared blocks into a sibling name via
+  // an `import` key (ifa-0001 §"import"). The canonical demo target
+  // testls.bit uses this pattern: the apex `d/testls` carries an
+  // `import` of `dd/testls`, which actually holds the `nostr.names`
+  // block. We expand any such chain before extracting the pubkey, using
+  // the same ElectrumX server list for the imported names.
+  const fetcher: NamecoinValueFetcher = (name) =>
+    queryNamecoinNameAcrossServers(name, servers);
+  const resolved = await resolveFromNamecoinValueAsync(rawValue, fetcher);
   if (!resolved) {
     log(
       `Namecoin value for ${parsed.namecoinName} did not contain a usable pubkey`,
@@ -386,6 +395,10 @@ export async function resolveNamecoinHostname(
  * Resolve a raw Namecoin name value (JSON string) into a
  * `ResolvedSiteAddress`. Exposed for testing and for callers that already
  * have the value in hand.
+ *
+ * Note: this synchronous path does NOT follow `import` chains. Use
+ * `resolveFromNamecoinValueAsync` (or `resolveNamecoinHostname`) when you
+ * need import-chain support.
  */
 export function resolveFromNamecoinValue(
   rawValue: string,
@@ -397,6 +410,12 @@ export function resolveFromNamecoinValue(
     return undefined;
   }
 
+  return resolveFromParsedValue(parsed);
+}
+
+function resolveFromParsedValue(
+  parsed: unknown,
+): ResolvedSiteAddress | undefined {
   const pubkey = extractPubkeyFromNamecoinValue(parsed);
   if (!pubkey) return undefined;
 
@@ -416,4 +435,60 @@ export function resolveFromNamecoinValue(
     identifier: "",
     kind: ROOT_SITE_MANIFEST_KIND,
   };
+}
+
+/**
+ * Resolve a raw Namecoin name value (JSON string) into a
+ * `ResolvedSiteAddress`, following any `import` chain on the value per
+ * ifa-0001 §"import". Imported names are fetched via the supplied
+ * `fetcher`; failures (missing name, malformed JSON, transient network
+ * error) are absorbed and treated as empty objects.
+ */
+export async function resolveFromNamecoinValueAsync(
+  rawValue: string,
+  fetcher: NamecoinValueFetcher,
+): Promise<ResolvedSiteAddress | undefined> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawValue);
+  } catch {
+    return undefined;
+  }
+
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return resolveFromParsedValue(parsed);
+  }
+
+  const merged = await expandImports(
+    parsed as Record<string, unknown>,
+    fetcher,
+  );
+  return resolveFromParsedValue(merged);
+}
+
+/**
+ * Look up a Namecoin name across the configured ElectrumX server list,
+ * returning the raw value string on the first hit. Used both by the
+ * top-level hostname resolver and by the import-chain fetcher so that
+ * imported sibling names go through the same server-fallback logic.
+ */
+async function queryNamecoinNameAcrossServers(
+  namecoinName: string,
+  servers: string[],
+): Promise<string | undefined> {
+  for (const server of servers) {
+    try {
+      const value = await queryNamecoinName(
+        server,
+        namecoinName,
+        QUERY_TIMEOUT_MS,
+      );
+      if (value) return value;
+    } catch (err) {
+      log(
+        `Namecoin import lookup for ${namecoinName} via ${server} failed: ${err}`,
+      );
+    }
+  }
+  return undefined;
 }
