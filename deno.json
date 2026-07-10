@@ -14,14 +14,14 @@
     "fmt": "deno fmt"
   },
   "imports": {
-    "@hono/hono": "jsr:@hono/hono@^4.12.9",
+    "@hono/hono": "jsr:@hono/hono@^4.12.28",
     "@std/media-types": "jsr:@std/media-types@^1.1.0",
-    "@std/path": "jsr:@std/path@^1.1.4",
-    "applesauce-common": "npm:applesauce-common@^6",
-    "applesauce-core": "npm:applesauce-core@^6",
-    "applesauce-loaders": "npm:applesauce-loaders@^6",
-    "applesauce-relay": "npm:applesauce-relay@^6",
-    "applesauce-signers": "npm:applesauce-signers@^6.0.1",
+    "@std/path": "jsr:@std/path@^1.1.6",
+    "applesauce-common": "npm:applesauce-common@^6.2.0",
+    "applesauce-core": "npm:applesauce-core@^6.2.0",
+    "applesauce-loaders": "npm:applesauce-loaders@^6.2.0",
+    "applesauce-relay": "npm:applesauce-relay@^6.2.1",
+    "applesauce-signers": "npm:applesauce-signers@^6.2.2",
     "debug": "npm:debug@^4.4.3",
     "rxjs": "npm:rxjs@^7.8.2",
     "xbytes": "npm:xbytes@^1.9.1"
