@@ -10,13 +10,16 @@
 
 ### Patch Changes
 
-- Tighten host-server compliance with the updated nsite spec by returning 404 for invalid unresolved hostnames, requiring manifest or kind `10063` blossom server hints, and forwarding blob `Content-Type` headers correctly
+- Tighten host-server compliance with the updated nsite spec by returning 404
+  for invalid unresolved hostnames, requiring manifest or kind `10063` blossom
+  server hints, and forwarding blob `Content-Type` headers correctly
 
 ## 3.6.0
 
 ### Minor Changes
 
-- Show the deploy client (e.g. nsyte) used to publish an nsite in status views, with links to known clients
+- Show the deploy client (e.g. nsyte) used to publish an nsite in status views,
+  with links to known clients
 
 ## 3.5.1
 

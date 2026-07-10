@@ -27,6 +27,14 @@
     "xbytes": "npm:xbytes@^1.9.1"
   },
   "publish": {
-    "include": ["public", "main.ts", "README.md", "LICENSE", "src", "nsite.md", "CHANGELOG.md"]
+    "include": [
+      "public",
+      "main.ts",
+      "README.md",
+      "LICENSE",
+      "src",
+      "nsite.md",
+      "CHANGELOG.md"
+    ]
   }
 }
