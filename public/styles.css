@@ -222,6 +222,11 @@ footer {
   font-weight: 600;
 }
 
+.site-card > div {
+  word-break: break-all;
+  overflow-wrap: break-word;
+}
+
 .site-meta {
   margin-top: 4px;
   color: var(--muted);
