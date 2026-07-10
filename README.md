@@ -23,6 +23,7 @@ cp .env.example .env
 | ------------------------ | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `LOOKUP_RELAYS`          | `wss://user.kindpag.es,wss://purplepag.es` | Comma-separated relays used to look up a user's NIP-65 relay list (kind `10002`) and blossom server list (kind `10063`)                                                                                                                                                                                                                                      |
 | `NOSTR_RELAYS`           | _(none)_                                   | Extra relays added to every event query, supplemental to the user's own outbox relays                                                                                                                                                                                                                                                                        |
+| `RLEAY_SYNC_INTERVAL`    | `600`                                      | How often to re-check `NOSTR_RELAYS` for newer site manifest and delete events, in seconds. Set to `live` to keep a persistent relay subscription open instead of periodic sync                                                                                                                                                                              |
 | `CACHE_RELAYS`           | _(auto-detect `ws://localhost:4869`)_      | Relays to persist all fetched events to (a local Nostr cache relay). Auto-detected if a relay is running on `localhost:4869`                                                                                                                                                                                                                                 |
 | `BLOSSOM_SERVERS`        | _(none)_                                   | Comma-separated fallback blossom servers used when a user has no `10063` event and the manifest has no `server` tags                                                                                                                                                                                                                                         |
 | `BLOSSOM_PROXY`          | _(auto-detect `http://localhost:24242`)_   | Optional upstream blossom proxy checked first for every blob (see [Blossom Proxy](#blossom-proxy)). Auto-detected if a proxy is running on `localhost:24242`                                                                                                                                                                                                 |
@@ -57,7 +58,9 @@ The Deno tasks already include the required flags (`--unstable-kv`,
 If `NOSTR_RELAYS` is set, the gateway will bulk-fetch all known site manifests
 (kinds `15128`, `35128`, and `5128`) from those relays at startup,
 pre-populating the in-memory event store, and then re-check those relays every
-10 minutes for newer manifest events.
+`RLEAY_SYNC_INTERVAL` seconds for newer manifest events. Set
+`RLEAY_SYNC_INTERVAL=live` to keep a persistent relay subscription open instead
+of using periodic sync.
 
 If `CURATION_USER` is set, the gateway loads that user's mute list via the same
 event loader used elsewhere, keeps it in `eventStore`, and refreshes it on the

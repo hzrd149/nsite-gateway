@@ -34,6 +34,17 @@ export const LOOKUP_RELAYS = relaySet(
 /** Extra nostr relays to use for loading site manifests */
 export const NOSTR_RELAYS = relaySet(getList("NOSTR_RELAYS"));
 
+const relaySyncInterval = Deno.env.get("RLEAY_SYNC_INTERVAL")?.trim();
+const parsedRelaySyncInterval = relaySyncInterval
+  ? parseInt(relaySyncInterval, 10)
+  : undefined;
+export const RLEAY_SYNC_INTERVAL: number | "live" = relaySyncInterval === "live"
+  ? "live"
+  : parsedRelaySyncInterval && parsedRelaySyncInterval > 0 &&
+      Number.isFinite(parsedRelaySyncInterval)
+  ? parsedRelaySyncInterval
+  : 10 * 60;
+
 const LOCAL_CACHE_RELAY = "ws://localhost:4869";
 const LOCAL_BLOSSOM_PROXY = "http://localhost:24242";
 

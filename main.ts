@@ -9,14 +9,13 @@ import {
   NOSTR_RELAYS,
   NSITE_HOST,
   NSITE_PORT,
+  RLEAY_SYNC_INTERVAL,
 } from "./src/env.ts";
 import app from "./src/server.ts";
 import { onShutdown } from "./src/helpers/shutdown.ts";
 import { getBlobVerifierPoolStats } from "./src/services/blob-verifier-pool.ts";
 import { startCurationService } from "./src/services/curation.ts";
-import { syncNsiteEvents } from "./src/services/nostr.ts";
-
-const RELAY_SYNC_INTERVAL_MS = 10 * 60 * 1000;
+import { subscribeNsiteEvents, syncNsiteEvents } from "./src/services/nostr.ts";
 
 function formatList(values: string[] | undefined, empty = "none") {
   return values && values.length > 0 ? values.join(", ") : empty;
@@ -59,28 +58,38 @@ if (NOSTR_RELAYS && NOSTR_RELAYS.length > 0) {
       console.error("Failed to hydrate from nostr relays", error);
     });
 
-  let syncInFlight = false;
-  const syncTimer = setInterval(async () => {
-    if (syncInFlight) return;
+  if (RLEAY_SYNC_INTERVAL === "live") {
+    console.log("Live relay sync enabled");
+    const liveSync = subscribeNsiteEvents(NOSTR_RELAYS);
 
-    syncInFlight = true;
+    onShutdown(() => {
+      liveSync.unsubscribe();
+      return Promise.resolve();
+    });
+  } else {
+    let syncInFlight = false;
+    const syncTimer = setInterval(async () => {
+      if (syncInFlight) return;
 
-    try {
-      const { manifests, deletes } = await syncNsiteEvents(NOSTR_RELAYS);
-      console.log(
-        `Periodic relay sync found ${manifests} new site manifest events and ${deletes} delete events`,
-      );
-    } catch (error) {
-      console.error("Periodic relay sync failed", error);
-    } finally {
-      syncInFlight = false;
-    }
-  }, RELAY_SYNC_INTERVAL_MS);
+      syncInFlight = true;
 
-  onShutdown(() => {
-    clearInterval(syncTimer);
-    return Promise.resolve();
-  });
+      try {
+        const { manifests, deletes } = await syncNsiteEvents(NOSTR_RELAYS);
+        console.log(
+          `Periodic relay sync found ${manifests} new site manifest events and ${deletes} delete events`,
+        );
+      } catch (error) {
+        console.error("Periodic relay sync failed", error);
+      } finally {
+        syncInFlight = false;
+      }
+    }, RLEAY_SYNC_INTERVAL * 1000);
+
+    onShutdown(() => {
+      clearInterval(syncTimer);
+      return Promise.resolve();
+    });
+  }
 }
 
 onShutdown(async () => {

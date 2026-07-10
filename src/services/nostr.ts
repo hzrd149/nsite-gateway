@@ -18,7 +18,7 @@ import {
 import type { NostrEvent } from "applesauce-core/helpers";
 import { createEventLoaderForStore } from "applesauce-loaders/loaders";
 import { RelayPool } from "applesauce-relay";
-import { takeUntil, timer } from "rxjs";
+import { type Subscription, takeUntil, timer } from "rxjs";
 import {
   CACHE_RELAYS,
   LOOKUP_RELAYS,
@@ -174,6 +174,31 @@ export async function syncNsiteEvents(relays = NOSTR_RELAYS): Promise<{
   const deletes = await syncSiteManifestDeletes(relays);
 
   return { manifests, deletes };
+}
+
+export function subscribeNsiteEvents(relays = NOSTR_RELAYS): Subscription {
+  return pool.subscription(
+    relays,
+    [
+      { kinds: SITE_MANIFEST_KINDS },
+      {
+        kinds: [DELETE_EVENT_KIND],
+        "#k": SITE_MANIFEST_KINDS.map((kind) => String(kind)),
+      },
+    ],
+    {
+      id: "nsite-live-sync",
+      reconnect: Infinity,
+      resubscribe: true,
+    },
+  ).subscribe({
+    next: (response) => {
+      eventStore.add(response);
+    },
+    error: (error) => {
+      console.error("Live relay sync failed", error);
+    },
+  });
 }
 
 if (CACHE_RELAYS) {
