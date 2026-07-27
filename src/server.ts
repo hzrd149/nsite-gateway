@@ -52,12 +52,14 @@ app.use(
 
 app.all("*", async (c) => {
   const hostname = new URL(c.req.url).hostname;
-  const pointer = await resolvePubkeyFromHostname(hostname);
-  if (pointer) {
-    return await handleSiteRequest(c, pointer);
-  }
 
+  // Root hosts are already known locally; only resolve potential site hostnames.
   if (!isGatewayRootHost(hostname)) {
+    const pointer = await resolvePubkeyFromHostname(hostname);
+    if (pointer) {
+      return await handleSiteRequest(c, pointer);
+    }
+
     return c.html(
       html`
         <!DOCTYPE html>${InvalidAddress({ hostname })}
