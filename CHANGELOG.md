@@ -1,5 +1,11 @@
 # nsite-gateway
 
+## 3.6.3
+
+### Patch Changes
+
+- Skip hostname resolution for gateway root hosts
+
 ## 3.6.2
 
 ### Patch Changes
