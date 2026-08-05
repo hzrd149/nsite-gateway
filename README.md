@@ -139,24 +139,24 @@ Once running, the gateway is accessible at `http://localhost:3000`.
 
 ## Running with Nix
 
-The repository flake packages the gateway and exports a NixOS module. Run the
-package directly with:
+The repository flake provides the packaged gateway, a development shell, and a
+NixOS module. Run the gateway directly without installing it globally:
 
 ```sh
 nix run .
 ```
 
-For a complete disposable NixOS example, start the headless QEMU VM:
+Enter a development shell containing Deno with:
 
 ```sh
-nix run .#vm
+nix develop
 ```
 
-The VM forwards the gateway to <http://127.0.0.1:3000> on the host. Its console
-login is `nsite` with password `nsite`; these credentials are only for the
-disposable example. Quit QEMU with <kbd>Ctrl-a</kbd>, then <kbd>x</kbd>.
+### NixOS module
 
-To use the module in another flake:
+Add this repository as an input and import `nixosModules.default` into a NixOS
+configuration. Enabling `services.nsite-gateway` creates and starts a hardened
+`nsite-gateway.service` systemd unit:
 
 ```nix
 {
@@ -171,10 +171,20 @@ To use the module in another flake:
           services.nsite-gateway = {
             enable = true;
             openFirewall = true;
+
+            # These values become environment variables for the service.
             settings = {
+              NSITE_HOST = "0.0.0.0";
+              NSITE_PORT = "3000";
               PUBLIC_DOMAIN = "nsite.example.com";
-              NOSTR_RELAYS = "wss://relay.example.com";
+              LOOKUP_RELAYS = "wss://user.kindpag.es,wss://purplepag.es";
+              NOSTR_RELAYS = "wss://relay.damus.io,wss://nos.lol";
+              BLOSSOM_PROXY = "http://127.0.0.1:24242";
             };
+
+            # Optional additional variables or secrets, one NAME=value per
+            # line. The file should be provisioned outside the Nix store.
+            environmentFile = "/run/secrets/nsite-gateway.env";
           };
         }
       ];
@@ -183,8 +193,41 @@ To use the module in another flake:
 }
 ```
 
-See [`nix/example-vm.nix`](nix/example-vm.nix) for a complete module
-configuration.
+`settings` accepts the environment variables listed in
+[Environment Variables](#environment-variables), with all values written as
+strings. The module supplies these defaults:
+
+- `NSITE_HOST=0.0.0.0`
+- `NSITE_PORT=3000`
+- `CACHE_PATH=/var/lib/nsite-gateway/cache.kv`
+
+Set `openFirewall = true` to open `NSITE_PORT`; leave it disabled when a local
+reverse proxy is the only process that should reach the gateway. Runtime state
+and the Deno cache are managed automatically under `/var/lib/nsite-gateway` and
+`/var/cache/nsite-gateway`. Since `settings` is stored in the world-readable Nix
+store, put sensitive values such as `CURATION_USER` in `environmentFile`.
+
+Apply the configuration and inspect the generated service with:
+
+```sh
+sudo nixos-rebuild switch --flake .#my-server
+systemctl status nsite-gateway
+journalctl -u nsite-gateway -f
+```
+
+### Example VM
+
+For a complete disposable NixOS example using the same module, start the
+headless QEMU VM:
+
+```sh
+nix run .#vm
+```
+
+The VM forwards the gateway to <http://127.0.0.1:3000> on the host. Its console
+login is `nsite` with password `nsite`; these credentials are only for the
+disposable example. Quit QEMU with <kbd>Ctrl-a</kbd>, then <kbd>x</kbd>. See
+[`nix/example-vm.nix`](nix/example-vm.nix) for its complete configuration.
 
 ## Running with Docker
 
