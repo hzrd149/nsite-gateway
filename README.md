@@ -137,6 +137,55 @@ Persistent Deno KV caching is enabled via a Docker volume mounted at `/cache`.
 
 Once running, the gateway is accessible at `http://localhost:3000`.
 
+## Running with Nix
+
+The repository flake packages the gateway and exports a NixOS module. Run the
+package directly with:
+
+```sh
+nix run .
+```
+
+For a complete disposable NixOS example, start the headless QEMU VM:
+
+```sh
+nix run .#vm
+```
+
+The VM forwards the gateway to <http://127.0.0.1:3000> on the host. Its console
+login is `nsite` with password `nsite`; these credentials are only for the
+disposable example. Quit QEMU with <kbd>Ctrl-a</kbd>, then <kbd>x</kbd>.
+
+To use the module in another flake:
+
+```nix
+{
+  inputs.nsite-gateway.url = "github:hzrd149/nsite-gateway";
+
+  outputs = { nixpkgs, nsite-gateway, ... }: {
+    nixosConfigurations.my-server = nixpkgs.lib.nixosSystem {
+      system = "x86_64-linux";
+      modules = [
+        nsite-gateway.nixosModules.default
+        {
+          services.nsite-gateway = {
+            enable = true;
+            openFirewall = true;
+            settings = {
+              PUBLIC_DOMAIN = "nsite.example.com";
+              NOSTR_RELAYS = "wss://relay.example.com";
+            };
+          };
+        }
+      ];
+    };
+  };
+}
+```
+
+See [`nix/example-vm.nix`](nix/example-vm.nix) for a complete module
+configuration.
+
 ## Running with Docker
 
 ```sh
