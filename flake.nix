@@ -1,12 +1,23 @@
 {
   description = "nsite gateway - serve Nostr websites over HTTP";
 
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    deno2nix.url = "github:hzrd149/deno2nix";
+    deno2nix.inputs.nixpkgs.follows = "nixpkgs";
+  };
 
   outputs =
-    { self, nixpkgs }:
+    {
+      self,
+      nixpkgs,
+      deno2nix,
+    }:
     let
-      systems = [ "x86_64-linux" ];
+      systems = [
+        "x86_64-linux"
+      ];
+
       forAllSystems =
         f:
         nixpkgs.lib.genAttrs systems (
@@ -14,6 +25,7 @@
           f system (
             import nixpkgs {
               inherit system;
+              overlays = [ deno2nix.overlays.default ];
             }
           )
         );
@@ -36,10 +48,15 @@
       };
     in
     {
+      nixosModules = {
+        nsite-gateway = import ./nix/module.nix self;
+        default = self.nixosModules.nsite-gateway;
+      };
+
       packages = forAllSystems (
         system: pkgs:
         (import ./nix/package.nix {
-          inherit pkgs src systems;
+          inherit pkgs src;
           version = (builtins.fromJSON (builtins.readFile ./deno.json)).version;
         })
         // {
@@ -56,24 +73,34 @@
         }
       );
 
-      nixosModules.default = import ./nix/module.nix self;
+      apps = forAllSystems (
+        system: _pkgs: {
+          default = {
+            type = "app";
+            program = "${self.packages.${system}.default}/bin/nsite-gateway";
+            meta.description = "Run the nsite gateway";
+          };
+        }
+      );
 
-      apps = forAllSystems (system: _pkgs: {
-        default = {
-          type = "app";
-          program = "${self.packages.${system}.default}/bin/nsite-gateway";
-          meta.description = "Run the nsite gateway";
-        };
-      });
+      devShells = forAllSystems (
+        _system: pkgs: {
+          default = pkgs.mkShell {
+            packages = [ pkgs.deno ];
 
-      devShells = forAllSystems (_system: pkgs: {
-        default = pkgs.mkShell {
-          packages = [ pkgs.deno ];
-        };
-      });
+            shellHook = ''
+              echo "nsite gateway dev shell"
+              echo "  deno task dev"
+              echo "  nix build .#nsite-gateway"
+            '';
+          };
+        }
+      );
 
-      checks = forAllSystems (system: _pkgs: {
-        package = self.packages.${system}.default;
-      });
+      checks = forAllSystems (
+        system: _pkgs: {
+          package = self.packages.${system}.default;
+        }
+      );
     };
 }

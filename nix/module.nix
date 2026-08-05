@@ -24,7 +24,12 @@ in
       type = lib.types.nullOr lib.types.path;
       default = null;
       example = "/run/secrets/nsite-gateway.env";
-      description = "Environment file containing additional configuration or secrets.";
+      description = ''
+        Environment file containing additional configuration or secrets
+        referenced from settings. Do not put secrets directly in settings
+        because the generated environment enters the world-readable Nix
+        store.
+      '';
     };
 
     settings = lib.mkOption {
@@ -35,8 +40,8 @@ in
         NOSTR_RELAYS = "wss://relay.example.com";
       };
       description = ''
-        Environment variables passed to the gateway. Secret values should be
-        supplied through environmentFile because these values enter the
+        Environment variables passed to the gateway. Secret values should
+        be supplied through environmentFile because these values enter the
         world-readable Nix store.
       '';
     };
@@ -61,6 +66,7 @@ in
       environment = cfg.settings // {
         DENO_DIR = "/var/cache/nsite-gateway/deno";
       };
+      restartTriggers = [ cfg.environmentFile ];
 
       serviceConfig = {
         ExecStart = lib.getExe cfg.package;
@@ -70,6 +76,7 @@ in
         DynamicUser = true;
         StateDirectory = "nsite-gateway";
         CacheDirectory = "nsite-gateway";
+        WorkingDirectory = "/var/lib/nsite-gateway";
         UMask = "0077";
 
         NoNewPrivileges = true;
