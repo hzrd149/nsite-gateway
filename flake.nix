@@ -30,21 +30,19 @@
           )
         );
 
-      sourceExclusions = [
-        ".git"
-        ".planning"
-        ".claude"
-        "data"
-        "flake.nix"
-        "flake.lock"
-        "nix"
-        "node_modules"
-        "vendor"
-      ];
-
-      src = nixpkgs.lib.cleanSourceWith {
-        src = ./.;
-        filter = path: _type: !(nixpkgs.lib.elem (baseNameOf path) sourceExclusions);
+      # Exactly what `deno run main.ts` needs, listed explicitly so unrelated
+      # files — planning notes, test fixtures, .env files, `nix build` result
+      # symlinks — can never change the derivation or leak into the store.
+      src = nixpkgs.lib.fileset.toSource {
+        root = ./.;
+        fileset = nixpkgs.lib.fileset.unions [
+          ./main.ts
+          ./deno.json
+          ./deno.lock
+          ./src
+          # Read at startup via import.meta.url (src/helpers/inline-css.ts).
+          ./public
+        ];
       };
     in
     {
