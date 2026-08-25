@@ -1,5 +1,12 @@
 # nsite-gateway
 
+## 3.6.4
+
+### Patch Changes
+
+- Disable event expiration tracking to prevent far-future NIP-40 expirations
+  from causing a timer hot loop
+
 ## 3.6.3
 
 ### Patch Changes
