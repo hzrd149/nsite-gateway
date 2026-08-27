@@ -147,13 +147,18 @@ export async function handleSiteRequest(
 
   // Create response headers
   const headers = new Headers();
+  // Prefer the MIME type implied by the request path. Blossom stores blobs
+  // without content types, so upstream servers guess -- often text/plain --
+  // and browsers refuse a stylesheet served as text/plain, leaving sites
+  // unstyled. The path extension is the only type signal the site author
+  // controls; fall back to the upstream header only when the path has no
+  // known extension.
   const upstreamContentType = upstream.headers.get("content-type");
-  const upstreamContentLength = upstream.headers.get("content-length");
-  if (upstreamContentType) {
+  const pathMime = contentType(extname(match.path));
+  if (pathMime) {
+    headers.set("content-type", pathMime);
+  } else if (upstreamContentType) {
     headers.set("content-type", upstreamContentType);
-  } else if (!upstreamContentLength) {
-    const mime = contentType(extname(match.path));
-    if (mime) headers.set("content-type", mime);
   }
 
   // Copy response headers from the upstream response
