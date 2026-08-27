@@ -11,7 +11,7 @@ let
     inherit version src;
 
     entrypoint = "main.ts";
-    denoDepsHash = "sha256-UkN66tl8vUwhUW7/f48TKAYeH/85AznfL5Xfj2mrRMs=";
+    denoDepsHash = "sha256-0nFZ2ZmvQ+bPmZKU51MKWZ8t8tVaP6kKTeghwIwSj0Y=";
 
     runFlags = [
       "--unstable-kv"
