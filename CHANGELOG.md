@@ -1,5 +1,11 @@
 # nsite-gateway
 
+## 3.6.5
+
+### Patch Changes
+
+- Prefer path-derived MIME types over upstream Blossom `Content-Type` headers
+
 ## 3.6.4
 
 ### Patch Changes
