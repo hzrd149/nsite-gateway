@@ -1,7 +1,7 @@
 {
   "version": "5",
   "specifiers": {
-    "jsr:@hono/hono@^4.12.28": "4.12.28",
+    "jsr:@hono/hono@^4.13.13": "4.13.13",
     "jsr:@std/assert@*": "1.0.19",
     "jsr:@std/crypto@^1.0.4": "1.0.5",
     "jsr:@std/internal@^1.0.12": "1.0.14",
@@ -18,8 +18,8 @@
     "npm:xbytes@^1.9.1": "1.9.1"
   },
   "jsr": {
-    "@hono/hono@4.12.28": {
-      "integrity": "4f109a4673ee3131191be485affc98131508d8fcf5621ffa24775f4205526d92"
+    "@hono/hono@4.13.13": {
+      "integrity": "dec817b8600fc2835c259d875a69e849a706f6d25e8d0643d75c97f7d0afcdf8"
     },
     "@std/assert@1.0.19": {
       "integrity": "eaada96ee120cb980bc47e040f82814d786fe8162ecc53c91d8df60b8755991e",
@@ -225,7 +225,7 @@
   },
   "workspace": {
     "dependencies": [
-      "jsr:@hono/hono@^4.12.28",
+      "jsr:@hono/hono@^4.13.13",
       "jsr:@std/media-types@^1.1.0",
       "jsr:@std/path@^1.1.6",
       "npm:applesauce-common@7",

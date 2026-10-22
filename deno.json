@@ -14,7 +14,7 @@
     "fmt": "deno fmt"
   },
   "imports": {
-    "@hono/hono": "jsr:@hono/hono@^4.12.28",
+    "@hono/hono": "jsr:@hono/hono@^4.13.13",
     "@std/media-types": "jsr:@std/media-types@^1.1.0",
     "@std/path": "jsr:@std/path@^1.1.6",
     "applesauce-common": "npm:applesauce-common@^7.0.0",
