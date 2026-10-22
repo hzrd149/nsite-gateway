@@ -1,5 +1,14 @@
 # nsite-gateway
 
+## 3.6.6
+
+### Patch Changes
+
+- Update the Docker base image to Deno 2.9.8
+- Upgrade applesauce packages to v7 and refresh their dependencies
+- Restore event expiration tracking with the upstream timer-clamping fix
+- Update Hono
+
 ## 3.6.5
 
 ### Patch Changes
