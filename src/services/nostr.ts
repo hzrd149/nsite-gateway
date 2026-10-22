@@ -3,12 +3,7 @@ import {
   BLOSSOM_SERVER_LIST_KIND,
   getBlossomServersFromList,
 } from "applesauce-common/helpers";
-import {
-  EventStore,
-  firstValueFrom,
-  type IExpirationManager,
-  lastValueFrom,
-} from "applesauce-core";
+import { EventStore, firstValueFrom, lastValueFrom } from "applesauce-core";
 import {
   type Filter,
   getInboxes,
@@ -23,7 +18,7 @@ import {
 import type { NostrEvent } from "applesauce-core/helpers";
 import { createEventLoaderForStore } from "applesauce-loaders/loaders";
 import { RelayPool } from "applesauce-relay";
-import { NEVER, type Subscription, takeUntil, timer } from "rxjs";
+import { type Subscription, takeUntil, timer } from "rxjs";
 import {
   CACHE_RELAYS,
   LOOKUP_RELAYS,
@@ -59,18 +54,7 @@ const SITE_MANIFEST_KINDS = [
 
 export const pool = new RelayPool();
 
-// Applesauce 6.2 schedules NIP-40 expirations with a single setTimeout. Disable
-// expiration tracking until the upstream timer-clamping fix is released.
-const disabledExpirationManager: IExpirationManager = {
-  expired$: NEVER,
-  track: () => {},
-  forget: () => {},
-  check: () => false,
-};
-
-export const eventStore = new EventStore({
-  expirationManager: disabledExpirationManager,
-});
+export const eventStore = new EventStore();
 
 // Setup debug logging for incoming nostr events
 eventStore.filters({ kinds: [BLOSSOM_SERVER_LIST_KIND] }).subscribe((list) => {

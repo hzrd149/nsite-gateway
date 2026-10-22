@@ -1,4 +1,5 @@
-FROM denoland/deno:2.7.7 AS main
+# 2.9.8 distrusts the compromised eMudhra intermediates.
+FROM denoland/deno:2.9.8 AS main
 
 WORKDIR /app
 
