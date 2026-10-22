@@ -11,6 +11,7 @@
     "dev": "deno run --unstable-kv --env-file=.env --watch --allow-env --allow-net --allow-read --allow-write main.ts",
     "start": "deno run --unstable-kv --env-file=.env --allow-env --allow-net --allow-read --allow-write main.ts",
     "check": "deno check main.ts",
+    "test": "deno test --allow-env=DEBUG",
     "fmt": "deno fmt"
   },
   "imports": {

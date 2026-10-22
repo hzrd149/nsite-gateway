@@ -1,0 +1,9 @@
+version: 1
+name: Unit tests
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+jobs:
+  test:
+    run: apps.x86_64-linux.test
