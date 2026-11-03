@@ -1,5 +1,16 @@
 # nsite-gateway
 
+## 3.6.7
+
+### Patch Changes
+
+- Add deployment-configurable site cache freshness with `SITE_CACHE_MAX_AGE`
+- Require revalidation after cached site responses become stale
+- Evaluate ETag conditions before range requests and use consistent
+  Last-Modified headers
+- Add unit coverage and GitHub and Nix CI test workflows
+- Skip GHCR login and image pushes for fork pull requests
+
 ## 3.6.6
 
 ### Patch Changes
