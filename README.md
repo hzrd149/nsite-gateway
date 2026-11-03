@@ -102,10 +102,30 @@ automatically.
 
 ### HTTP Cache
 
-All nsite responses include strong ETags (the blob's sha256 hash) and
-`Cache-Control: public, max-age=3600`. Conditional requests with `If-None-Match`
-are handled — matching ETags return `304 Not Modified` without fetching the blob
-at all.
+Served site files include strong ETags derived from the manifest's SHA-256 hash
+for that file. Changed bytes produce a new ETag; republishing unchanged files
+keeps the same ETag. Matching `If-None-Match` validators (including weak
+validators and lists) return `304 Not Modified` without fetching the blob, for
+GET and HEAD, including requests with Range. Custom 404 pages retain their 404
+status. `Last-Modified` consistently uses the manifest publication time.
+
+Set `SITE_CACHE_MAX_AGE` in the deployment environment to a non-negative integer
+in seconds (default `3600`). Full and 304 responses both use
+`Cache-Control: public, max-age=<value>, must-revalidate`. For sites that should
+check for updates on every request, use:
+
+```sh
+SITE_CACHE_MAX_AGE=0
+```
+
+Browsers can still store files and reuse them after a successful ETag check.
+Positive values allow reuse without checking until that many seconds have
+passed. Restart the gateway after changing the setting. Previously cached
+responses keep their original freshness lifetime until they expire or the
+browser reloads them. This setting is independent of `CACHE_TIME` (server-side
+caches) and does not change how quickly the gateway discovers new manifests from
+Nostr relays (see `RLEAY_SYNC_INTERVAL`). ETags reflect the manifest currently
+known to the gateway.
 
 ## Running Directly from JSR
 

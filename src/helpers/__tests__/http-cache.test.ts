@@ -39,14 +39,14 @@ Deno.test("hasMatchingIfNoneMatch compares weak server validators", () => {
   );
 });
 
-Deno.test("range requests bypass conditional cache matches including wildcards", () => {
+Deno.test("range requests evaluate conditional cache matches before ranges", () => {
   for (const validator of ['"hash"', 'W/"hash"', "*"]) {
     assertEquals(
       hasMatchingIfNoneMatch(
         new Headers({ "if-none-match": validator, range: "bytes=0-99" }),
         '"hash"',
       ),
-      false,
+      true,
     );
   }
 });
@@ -67,5 +67,15 @@ Deno.test("createWeakFileEtag uses size and modification time", () => {
   assertEquals(
     createWeakFileEtag({ ...stat, size: 0, mtime: new Date(0) }),
     'W/"0-0"',
+  );
+});
+
+Deno.test("changed content invalidates the previous ETag", () => {
+  const oldEtag = createStrongEtag("old-content-hash");
+  const newEtag = createStrongEtag("new-content-hash");
+  assertNotEquals(oldEtag, newEtag);
+  assertEquals(
+    hasMatchingIfNoneMatch(new Headers({ "if-none-match": oldEtag }), newEtag),
+    false,
   );
 });

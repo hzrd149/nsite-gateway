@@ -13,7 +13,6 @@ export function hasMatchingIfNoneMatch(
 ): boolean {
   const ifNoneMatch = headers.get("if-none-match");
   if (!ifNoneMatch) return false;
-  if (headers.get("range")) return false;
   if (ifNoneMatch.trim() === "*") return true;
 
   const expected = normalizeEtag(etag);

@@ -70,6 +70,21 @@ export const CACHE_TIME = Deno.env.get("CACHE_TIME")
   ? parseInt(Deno.env.get("CACHE_TIME")!, 10)
   : 60 * 60;
 
+/** Browser/shared-cache freshness in seconds; zero requires revalidation. */
+const siteCacheMaxAge = Deno.env.get("SITE_CACHE_MAX_AGE")?.trim();
+export const SITE_CACHE_MAX_AGE =
+  siteCacheMaxAge === undefined || siteCacheMaxAge === ""
+    ? 3600
+    : Number(siteCacheMaxAge);
+if (
+  (siteCacheMaxAge && !/^\d+$/.test(siteCacheMaxAge)) ||
+  !Number.isSafeInteger(SITE_CACHE_MAX_AGE) || SITE_CACHE_MAX_AGE < 0
+) {
+  throw new Error(
+    "SITE_CACHE_MAX_AGE must be a non-negative integer in seconds",
+  );
+}
+
 export const BLOB_SERVER_TTL = Deno.env.get("BLOB_SERVER_TTL")
   ? parseInt(Deno.env.get("BLOB_SERVER_TTL")!, 10)
   : 7 * 24 * 60 * 60;

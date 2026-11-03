@@ -3,7 +3,12 @@ import { html } from "@hono/hono/html";
 import { contentType } from "@std/media-types";
 import { extname } from "@std/path/posix";
 import { mergeBlossomServers } from "applesauce-common/helpers";
-import { BLOSSOM_PROXY, BLOSSOM_SERVERS, ONION_HOST } from "../env.ts";
+import {
+  BLOSSOM_PROXY,
+  BLOSSOM_SERVERS,
+  ONION_HOST,
+  SITE_CACHE_MAX_AGE,
+} from "../env.ts";
 import {
   createStrongEtag,
   hasMatchingIfNoneMatch,
@@ -100,7 +105,10 @@ export async function handleSiteRequest(
   if (!match.is404 && hasMatchingIfNoneMatch(request.headers, etag)) {
     const headers = new Headers();
     headers.set("ETag", etag);
-    headers.set("Cache-Control", "public, max-age=3600");
+    headers.set(
+      "Cache-Control",
+      `public, max-age=${SITE_CACHE_MAX_AGE}, must-revalidate`,
+    );
     headers.set("Last-Modified", getSiteLastModified(manifest.created_at));
     appendOnionLocation(headers, site, manifest.pubkey, identifier);
     return new Response(null, { status: 304, headers });
@@ -169,11 +177,13 @@ export async function handleSiteRequest(
 
   // Set response headers
   headers.set("ETag", etag);
-  headers.set("Cache-Control", "public, max-age=3600");
+  headers.set(
+    "Cache-Control",
+    `public, max-age=${SITE_CACHE_MAX_AGE}, must-revalidate`,
+  );
   headers.set(
     "Last-Modified",
-    upstream.headers.get("last-modified") ||
-      getSiteLastModified(manifest.created_at),
+    getSiteLastModified(manifest.created_at),
   );
   appendOnionLocation(headers, site, manifest.pubkey, identifier);
 
