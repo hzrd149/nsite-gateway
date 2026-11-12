@@ -182,9 +182,25 @@ The gateway resolves incoming hostnames to a Nostr site using three strategies
    1–13 character site identifier (e.g.
    `<base36pubkey><identifier>.nsite.example.com`). Serves a named site (kind
    `35128`).
-4. **CNAME resolution** — if the hostname doesn't parse directly as an nsite
-   label, the gateway resolves CNAME records. This enables custom domains like
-   `myblog.com → npub1abc....nsite.example.com`.
+4. **Namecoin `.bit` resolution**: the gateway queries the rightmost `d/<name>`
+   through configured ElectrumX WSS servers, walks subdomain `map` entries from
+   right to left, and processes ifa-0001 imports. The preferred `nostr.nsite`
+   value accepts `npub` and `nprofile` root targets, root and named `naddr`
+   targets, and exact `nevent` and `note` manifest targets. Legacy identity,
+   bare named-site, and top-level compatibility forms remain available with
+   deterministic precedence. Resolution fails closed instead of falling back
+   from an invalid direct pointer to another identity or an ordinary website.
+   See [NIP-XX #2540](https://github.com/nostr-protocol/nips/pull/2540) and
+   [NIP-N6 #2](https://github.com/mstrofnone/nips/pull/2).
+
+   ElectrumX is an explicit trusted-server model, not blockchain proof or an
+   authenticated HTTPS origin. Operators can override the default servers with
+   `NSITE_NAMECOIN_ELECTRUMX_SERVERS`, a comma-separated list of
+   `wss://host:port` URLs. A `.bit` resolution failure never falls through to
+   DNS CNAME resolution.
+5. **CNAME resolution**: for non-`.bit` hostnames that do not parse directly as
+   an nsite label, the gateway resolves CNAME records. This enables custom
+   domains like `myblog.com → npub1abc....nsite.example.com`.
 
 ## Homepage
 

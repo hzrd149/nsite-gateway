@@ -8,6 +8,7 @@
     "jsr:@std/internal@^1.0.14": "1.0.14",
     "jsr:@std/media-types@^1.1.0": "1.1.0",
     "jsr:@std/path@^1.1.6": "1.1.6",
+    "npm:@scure/base@1.2.6": "1.2.6",
     "npm:applesauce-common@7": "7.0.0",
     "npm:applesauce-core@^7.0.3": "7.0.3",
     "npm:applesauce-loaders@^7.0.2": "7.0.2",
@@ -76,6 +77,9 @@
     },
     "@scure/base@1.1.1": {
       "integrity": "sha512-ZxOhsSyxYwLJj3pLZCefNitxsj093tb2vq90mp2txoYeBqbcjDjqFhyM8eUjq/uFm6zJ+mUuqxlS2FkuSY1MTA=="
+    },
+    "@scure/base@1.2.6": {
+      "integrity": "sha512-g/nm5FgUa//MCj1gV09zTJTaM6KBAHqLN907YVQqf7zC49+DcO4B1so4ZX07Ef10Twr6nuqYEH9GEggFXA4Fmg=="
     },
     "@scure/base@2.0.0": {
       "integrity": "sha512-3E1kpuZginKkek01ovG8krQ0Z44E3DHPjc5S2rjJw9lZn3KSQOs8S7wqikF/AH7iRanHypj85uGyxk0XAyC37w=="
@@ -228,6 +232,7 @@
       "jsr:@hono/hono@^4.13.13",
       "jsr:@std/media-types@^1.1.0",
       "jsr:@std/path@^1.1.6",
+      "npm:@scure/base@1.2.6",
       "npm:applesauce-common@7",
       "npm:applesauce-core@^7.0.3",
       "npm:applesauce-loaders@^7.0.2",

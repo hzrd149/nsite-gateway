@@ -119,9 +119,12 @@ function parseNsiteAddress(
     }
     if (result.type === "nevent") {
       return {
-        type: "snapshot",
+        type: "event",
         ...result.data,
       };
+    }
+    if (result.type === "note") {
+      return { type: "event", id: result.data };
     }
   } catch {
     // not a nip19 string
@@ -146,10 +149,13 @@ function formatTimestamp(createdAt: number): string {
 function getSiteHostname(
   site: ResolvedSiteAddress,
   host: string,
+  manifestKind?: number,
 ): string | undefined {
-  const subdomain = site.type === "snapshot"
+  const subdomain = site.type === "replaceable"
+    ? formatNsiteSubdomain(site.pubkey, site.identifier)
+    : site.type === "snapshot" || manifestKind === 5128
     ? formatSnapshotSubdomain(site.id)
-    : formatNsiteSubdomain(site.pubkey, site.identifier);
+    : undefined;
   if (!subdomain) return undefined;
   return `${subdomain}.${host}`;
 }
@@ -570,7 +576,8 @@ export async function siteStatusRoute(c: Context): Promise<Response> {
       };
     },
   );
-  const parentSite = parsed.type === "snapshot"
+  const isSnapshot = manifest.kind === 5128;
+  const parentSite = isSnapshot
     ? (() => {
       const parent = getSnapshotParentAddress(manifest);
       if (!parent) return undefined;
@@ -591,7 +598,7 @@ export async function siteStatusRoute(c: Context): Promise<Response> {
     })()
     : undefined;
 
-  const siteHostname = getSiteHostname(parsed, url.host);
+  const siteHostname = getSiteHostname(parsed, url.host, manifest.kind);
 
   const manifestPathList = [...manifestPaths.entries()];
   const pathEntries: SitePathEntry[] = await Promise.all(
@@ -640,7 +647,7 @@ export async function siteStatusRoute(c: Context): Promise<Response> {
           paths={pathEntries}
           hits={hits}
           createdAt={manifest.created_at}
-          isSnapshot={parsed.type === "snapshot"}
+          isSnapshot={isSnapshot}
           host={url.host}
           protocol={url.protocol}
           hostname={siteHostname}
