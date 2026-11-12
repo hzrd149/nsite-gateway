@@ -11,13 +11,14 @@
     "dev": "deno run --unstable-kv --env-file=.env --watch --allow-env --allow-net --allow-read --allow-write main.ts",
     "start": "deno run --unstable-kv --env-file=.env --allow-env --allow-net --allow-read --allow-write main.ts",
     "check": "deno check main.ts",
-    "test": "deno test --allow-env=DEBUG,NO_COLOR,FORCE_COLOR,TERM,COLORTERM",
+    "test": "deno test --unstable-kv --allow-env",
     "fmt": "deno fmt"
   },
   "imports": {
     "@hono/hono": "jsr:@hono/hono@^4.13.13",
     "@std/media-types": "jsr:@std/media-types@^1.1.0",
     "@std/path": "jsr:@std/path@^1.1.6",
+    "@scure/base": "npm:@scure/base@1.2.6",
     "applesauce-common": "npm:applesauce-common@^7.0.0",
     "applesauce-core": "npm:applesauce-core@^7.0.3",
     "applesauce-loaders": "npm:applesauce-loaders@^7.0.2",

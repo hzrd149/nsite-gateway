@@ -35,10 +35,13 @@ function appendOnionLocation(
   site?: ResolvedSiteAddress,
   pubkey?: string,
   identifier = "",
+  manifestKind?: number,
 ) {
   if (!ONION_HOST) return;
   const url = new URL(ONION_HOST);
-  const subdomain = site?.type === "snapshot"
+  const subdomain = site?.type === "event"
+    ? manifestKind === 5128 ? formatSnapshotSubdomain(site.id) : undefined
+    : site?.type === "snapshot"
     ? formatSnapshotSubdomain(site.id)
     : pubkey
     ? formatNsiteSubdomain(pubkey, identifier)
@@ -63,7 +66,10 @@ export async function handleSiteRequest(
   const pubkey = site.type === "replaceable" ? site.pubkey : undefined;
   const identifier = site.type === "replaceable" ? site.identifier : "";
 
-  const manifest = await getManifest(site, 10_000);
+  const forceRefresh = request.headers.get("cache-control")?.split(",").some(
+    (directive) => directive.trim().toLowerCase() === "no-cache",
+  ) ?? false;
+  const manifest = await getManifest(site, 10_000, forceRefresh);
 
   const userServers = manifest
     ? await getUserBlossomServers(manifest.pubkey, 10_000)
@@ -110,7 +116,13 @@ export async function handleSiteRequest(
       `public, max-age=${SITE_CACHE_MAX_AGE}, must-revalidate`,
     );
     headers.set("Last-Modified", getSiteLastModified(manifest.created_at));
-    appendOnionLocation(headers, site, manifest.pubkey, identifier);
+    appendOnionLocation(
+      headers,
+      site,
+      manifest.pubkey,
+      identifier,
+      manifest.kind,
+    );
     return new Response(null, { status: 304, headers });
   }
 
@@ -185,7 +197,13 @@ export async function handleSiteRequest(
     "Last-Modified",
     getSiteLastModified(manifest.created_at),
   );
-  appendOnionLocation(headers, site, manifest.pubkey, identifier);
+  appendOnionLocation(
+    headers,
+    site,
+    manifest.pubkey,
+    identifier,
+    manifest.kind,
+  );
 
   // Set response status
   const status = match.is404

@@ -8,4 +8,12 @@ export type SnapshotSiteAddress = EventPointer & {
   type: "snapshot";
 };
 
-export type ResolvedSiteAddress = ReplaceableSiteAddress | SnapshotSiteAddress;
+/** An exact manifest event selected by a NIP-19 event pointer. */
+export type EventSiteAddress = EventPointer & {
+  type: "event";
+};
+
+export type ResolvedSiteAddress =
+  | ReplaceableSiteAddress
+  | SnapshotSiteAddress
+  | EventSiteAddress;

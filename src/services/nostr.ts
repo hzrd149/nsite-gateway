@@ -14,11 +14,15 @@ import {
   persistEventsToCache,
   type ProfileContent,
   relaySet,
+  verifyEvent,
 } from "applesauce-core/helpers";
 import type { NostrEvent } from "applesauce-core/helpers";
-import { createEventLoaderForStore } from "applesauce-loaders/loaders";
+import {
+  createEventLoader,
+  createEventLoaderForStore,
+} from "applesauce-loaders/loaders";
 import { RelayPool } from "applesauce-relay";
-import { type Subscription, takeUntil, timer } from "rxjs";
+import { type Subscription, takeUntil, timer, toArray } from "rxjs";
 import {
   CACHE_RELAYS,
   LOOKUP_RELAYS,
@@ -29,7 +33,9 @@ import {
 } from "../env.ts";
 import logger from "../helpers/debug.ts";
 import { formatAgeFromUnix } from "../helpers/format.ts";
+import { CANONICAL_SITE_IDENTIFIER } from "../helpers/nsite-host.ts";
 import type {
+  EventSiteAddress,
   ReplaceableSiteAddress,
   ResolvedSiteAddress,
   SnapshotSiteAddress,
@@ -54,7 +60,12 @@ const SITE_MANIFEST_KINDS = [
 
 export const pool = new RelayPool();
 
-export const eventStore = new EventStore();
+// Retain replaceable history so an exact event pointer cannot be changed into
+// a request for the current version. Every inserted event is still verified.
+export const eventStore = new EventStore({
+  keepOldVersions: true,
+  verifyEvent,
+});
 
 // Setup debug logging for incoming nostr events
 eventStore.filters({ kinds: [BLOSSOM_SERVER_LIST_KIND] }).subscribe((list) => {
@@ -98,6 +109,19 @@ export const eventLoader = createEventLoaderForStore(eventStore, pool, {
   extraRelays: relaySet(NOSTR_RELAYS),
 });
 
+// Exact and current selection need the original events, not the event store's
+// replacement projection. The store remains useful for models and discovery.
+const exactEventLoader = createEventLoader(pool, {
+  bufferTime: 500,
+  eventStore: null,
+  extraRelays: relaySet(CACHE_RELAYS, LOOKUP_RELAYS, NOSTR_RELAYS),
+});
+
+const exactManifestEvents = new Map<string, NostrEvent>();
+const currentManifestEvents = new Map<string, Map<string, NostrEvent>>();
+const currentManifestChecked = new Map<string, number>();
+const CURRENT_MANIFEST_STALE_TIME_MS = 60_000;
+
 function getLatestSiteManifestCreatedAt(): number | undefined {
   const manifests = eventStore.getTimeline({ kinds: SITE_MANIFEST_KINDS });
 
@@ -126,6 +150,7 @@ async function requestAndStoreEvents(
 
     pool.request(relays, filter).subscribe({
       next: (event) => {
+        rememberManifestEvent(event);
         const insert = eventStore.add(event);
         if (insert && insert === event) found++;
       },
@@ -312,77 +337,222 @@ export async function getUserBlossomServers(pubkey: string, timeout = 5_000) {
   return servers?.map((server) => server.toString());
 }
 
-/** Loads a replaceable site manifest event from the store */
+/** Loads a replaceable site manifest, refreshing stale current selections. */
 export async function getReplaceableManifest(
   address: ReplaceableSiteAddress,
   timeout = 5_000,
+  forceRefresh = false,
 ) {
-  const manifest = eventStore.getReplaceable(
-    address.kind,
-    address.pubkey,
-    address.identifier,
-  );
-  if (manifest) return manifest;
+  const key = currentAddressKey(address);
+  const checked = currentManifestChecked.get(key) ?? 0;
+  const fresh = Date.now() - checked < CURRENT_MANIFEST_STALE_TIME_MS;
+  const stored = getCurrentManifestCandidates(address);
+  if (!forceRefresh && fresh && stored.length > 0) {
+    const selected = selectCurrentManifest(stored, address);
+    if (selected) return selected;
+  }
 
   log(`Loading manifest ${getReplaceableAddressFromPointer(address)}`);
 
   const outboxes = await getUserOutboxes(address.pubkey, timeout);
-  const relays = relaySet(outboxes, address.relays);
+  const relays = relaySet(
+    outboxes,
+    address.relays,
+    CACHE_RELAYS,
+    LOOKUP_RELAYS,
+    NOSTR_RELAYS,
+  );
 
   log(
     `Loading manifest ${getReplaceableAddressFromPointer(address)} from ${
       relays.join(", ")
     }`,
   );
-  return await lastValueFrom(
-    eventLoader(
-      // Load the address pointer from the outboxes and default relays
-      { ...address, relays: relaySet(relays), cache: false },
+  const filter = address.kind === ROOT_SITE_MANIFEST_KIND
+    ? { kinds: [address.kind], authors: [address.pubkey] }
+    : {
+      kinds: [address.kind],
+      authors: [address.pubkey],
+      "#d": [address.identifier],
+    };
+  // Query the complete discovery set. A response from one relay must not stop
+  // discovery of a newer replaceable event on another relay.
+  const loaded = await lastValueFrom(
+    pool.request(relays, filter).pipe(
+      takeUntil(timer(timeout)),
+      toArray(),
+    ),
+    { defaultValue: [] as NostrEvent[] },
+  );
+  const candidates = loaded.filter((event) =>
+    isCurrentManifestCandidate(event, address) && verifyEvent(event)
+  );
+  for (const event of candidates) {
+    rememberManifestEvent(event);
+    eventStore.add(event);
+  }
+  if (candidates.length > 0) currentManifestChecked.set(key, Date.now());
+
+  // An empty refresh cannot resurrect an expired current selection. A still
+  // fresh cached value remains usable for its explicitly bounded lifetime.
+  if (candidates.length === 0 && !fresh) return undefined;
+  return selectCurrentManifest(getCurrentManifestCandidates(address), address);
+}
+
+function currentAddressKey(address: ReplaceableSiteAddress): string {
+  return `${address.kind}:${address.pubkey}:${address.identifier}`;
+}
+
+function isCurrentManifestCandidate(
+  event: NostrEvent,
+  address: ReplaceableSiteAddress,
+): boolean {
+  if (event.kind !== address.kind || event.pubkey !== address.pubkey) {
+    return false;
+  }
+  return address.kind === ROOT_SITE_MANIFEST_KIND ||
+    getManifestIdentifier(event) === address.identifier;
+}
+
+function rememberManifestEvent(event: NostrEvent): void {
+  if (!SITE_MANIFEST_KINDS.includes(event.kind) || !verifyEvent(event)) return;
+  exactManifestEvents.set(event.id, event);
+
+  if (event.kind === MANIFEST_SNAPSHOT_KIND) return;
+  const address: ReplaceableSiteAddress = {
+    type: "replaceable",
+    kind: event.kind,
+    pubkey: event.pubkey,
+    identifier: event.kind === ROOT_SITE_MANIFEST_KIND
+      ? ""
+      : getManifestIdentifier(event) ?? "",
+  };
+  const key = currentAddressKey(address);
+  const events = currentManifestEvents.get(key) ??
+    new Map<string, NostrEvent>();
+  events.set(event.id, event);
+  currentManifestEvents.set(key, events);
+}
+
+function getCurrentManifestCandidates(
+  address: ReplaceableSiteAddress,
+): NostrEvent[] {
+  const events = new Map<string, NostrEvent>(
+    currentManifestEvents.get(currentAddressKey(address)),
+  );
+  for (
+    const event of eventStore.getTimeline({
+      kinds: [address.kind],
+      authors: [address.pubkey],
+    })
+  ) {
+    if (isCurrentManifestCandidate(event, address) && verifyEvent(event)) {
+      events.set(event.id, event);
+    }
+  }
+  return [...events.values()];
+}
+
+/** Select current by NIP-01 ordering, then validate the winning manifest. */
+export function selectCurrentManifest(
+  events: NostrEvent[],
+  address: ReplaceableSiteAddress,
+): NostrEvent | undefined {
+  const candidates = events.filter((event) =>
+    isCurrentManifestCandidate(event, address) && verifyEvent(event)
+  ).sort((a, b) => b.created_at - a.created_at || a.id.localeCompare(b.id));
+  const selected = candidates[0];
+  return selected && isMatchingReplaceableManifest(selected, address)
+    ? selected
+    : undefined;
+}
+
+/** Checks the id, hints, kind, and site identity of an exact manifest event. */
+export function isMatchingManifestEvent(
+  event: NostrEvent,
+  pointer: EventSiteAddress | SnapshotSiteAddress,
+): boolean {
+  if (event.id !== pointer.id) return false;
+  if (pointer.author !== undefined && event.pubkey !== pointer.author) {
+    return false;
+  }
+  if (pointer.kind !== undefined && event.kind !== pointer.kind) return false;
+  if (pointer.type === "snapshot" && event.kind !== MANIFEST_SNAPSHOT_KIND) {
+    return false;
+  }
+  if (!SITE_MANIFEST_KINDS.includes(event.kind)) return false;
+
+  const identifiers = event.tags.filter((tag) => tag[0] === "d");
+  if (event.kind === ROOT_SITE_MANIFEST_KIND) return identifiers.length === 0;
+  if (event.kind === NAMED_SITE_MANIFEST_KIND) {
+    return identifiers.length === 1 &&
+      CANONICAL_SITE_IDENTIFIER.test(identifiers[0]?.[1] ?? "");
+  }
+
+  return true;
+}
+
+/** Loads an exact root, named, or snapshot manifest event by id. */
+export async function getEventManifest(
+  pointer: EventSiteAddress | SnapshotSiteAddress,
+  timeout = 5_000,
+) {
+  const cached = exactManifestEvents.get(pointer.id) ??
+    eventStore.getEvent(pointer.id);
+  if (cached) {
+    return verifyEvent(cached) && isMatchingManifestEvent(cached, pointer)
+      ? cached
+      : undefined;
+  }
+
+  const relays = relaySet(
+    pointer.relays,
+    CACHE_RELAYS,
+    LOOKUP_RELAYS,
+    NOSTR_RELAYS,
+  );
+  if (relays.length === 0) return undefined;
+
+  log(`Loading manifest event ${pointer.id} from ${relays.join(", ")}`);
+
+  const loaded = await lastValueFrom(
+    exactEventLoader(
+      { ...pointer, relays, cache: false },
     ).pipe(
-      // Add hard timeout
       takeUntil(timer(timeout)),
     ),
     { defaultValue: undefined },
   );
+  if (
+    !loaded || !verifyEvent(loaded) ||
+    !isMatchingManifestEvent(loaded, pointer)
+  ) {
+    return undefined;
+  }
+  rememberManifestEvent(loaded);
+  eventStore.add(loaded);
+  return loaded;
 }
 
-/** Loads a snapshot manifest event by id */
+/** Loads a canonical snapshot manifest event by id. */
 export async function getSnapshotManifest(
   snapshot: SnapshotSiteAddress,
   timeout = 5_000,
 ) {
-  const cached = eventStore
-    .getTimeline({ kinds: [MANIFEST_SNAPSHOT_KIND] })
-    .find((event) => event.id === snapshot.id);
-  if (cached) return cached;
-
-  const relays = relaySet(CACHE_RELAYS, LOOKUP_RELAYS, NOSTR_RELAYS);
-  if (relays.length === 0) return undefined;
-
-  log(
-    `Loading snapshot manifest ${snapshot.id} from ${relays.join(", ")}`,
-  );
-
-  return await lastValueFrom(
-    eventLoader(
-      { ...snapshot, relays: relaySet(relays), cache: false },
-    ).pipe(
-      takeUntil(timer(timeout)),
-    ),
-    { defaultValue: undefined },
-  );
+  return await getEventManifest(snapshot, timeout);
 }
 
 /** Loads any supported site manifest event */
 export async function getManifest(
   address: ResolvedSiteAddress,
   timeout = 5_000,
+  forceRefresh = false,
 ) {
-  if (address.type === "snapshot") {
-    return await getSnapshotManifest(address, timeout);
+  if (address.type !== "replaceable") {
+    return await getEventManifest(address, timeout);
   }
 
-  return await getReplaceableManifest(address, timeout);
+  return await getReplaceableManifest(address, timeout, forceRefresh);
 }
 
 export function isMatchingManifestAddress(
@@ -394,9 +564,19 @@ export function isMatchingManifestAddress(
 
   if (identifier === "") {
     return event.kind === ROOT_SITE_MANIFEST_KIND &&
-      getManifestIdentifier(event) === undefined;
+      !event.tags.some((tag) => tag[0] === "d");
   }
 
   return event.kind === NAMED_SITE_MANIFEST_KIND &&
+    event.tags.filter((tag) => tag[0] === "d").length === 1 &&
+    CANONICAL_SITE_IDENTIFIER.test(identifier) &&
     getManifestIdentifier(event) === identifier;
+}
+
+function isMatchingReplaceableManifest(
+  event: NostrEvent,
+  address: ReplaceableSiteAddress,
+): boolean {
+  return event.kind === address.kind &&
+    isMatchingManifestAddress(event, address.pubkey, address.identifier);
 }

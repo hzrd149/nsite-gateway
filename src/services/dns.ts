@@ -11,6 +11,10 @@ type ResolveDns = (
   recordType: "CNAME",
 ) => Promise<string[]>;
 
+type ResolveNamecoin = (
+  hostname: string,
+) => Promise<ResolvedSiteAddress | undefined>;
+
 async function getCnameRecords(hostname: string): Promise<string[]> {
   try {
     return await Deno.resolveDns(hostname, "CNAME");
@@ -22,19 +26,29 @@ async function getCnameRecords(hostname: string): Promise<string[]> {
 export async function resolvePubkeyFromHostname(
   hostname: string,
   resolveDns: ResolveDns = getCnameRecords,
+  resolveNamecoin: ResolveNamecoin = resolveNamecoinHostname,
 ): Promise<ResolvedSiteAddress | undefined> {
   if (hostname === "localhost" || hostname === "127.0.0.1") return undefined;
 
-  const cached = await getDNSPubkey(hostname);
-  if (cached) return cached;
-
   let resolved = parseNsiteHostname(hostname);
+  const namecoinHostname = isNamecoinHostname(hostname);
 
-  if (!resolved && isNamecoinHostname(hostname)) {
-    resolved = await resolveNamecoinHostname(hostname);
+  // Namecoin values and expiry must be re-read, not hidden behind a pointer
+  // cache. Other hostname mappings retain the existing bounded DNS cache.
+  if (!namecoinHostname) {
+    const cached = await getDNSPubkey(hostname);
+    if (cached) return cached;
   }
 
-  if (!resolved) {
+  if (!resolved && namecoinHostname) {
+    resolved = await resolveNamecoin(hostname);
+    if (!resolved) {
+      log(`Failed to resolve Namecoin hostname ${hostname}`);
+      return undefined;
+    }
+  }
+
+  if (!resolved && !namecoinHostname) {
     for (const cname of await resolveDns(hostname, "CNAME")) {
       const candidate = parseNsiteHostname(cname);
       if (candidate) {
@@ -52,9 +66,9 @@ export async function resolvePubkeyFromHostname(
   log(
     resolved.type === "replaceable"
       ? `Resolved ${hostname} to ${resolved.pubkey} with identifier "${resolved.identifier}"`
-      : `Resolved ${hostname} to snapshot ${resolved.id}`,
+      : `Resolved ${hostname} to exact event ${resolved.id}`,
   );
-  await setDNSPubkey(hostname, resolved);
+  if (!namecoinHostname) await setDNSPubkey(hostname, resolved);
 
   return resolved;
 }
