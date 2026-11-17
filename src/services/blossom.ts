@@ -1,4 +1,9 @@
 import { MAX_FILE_SIZE } from "../env.ts";
+import {
+  fetchBlossom,
+  isBlobHash,
+  parseBlossomURL,
+} from "../helpers/blossom.ts";
 import logger from "../helpers/debug.ts";
 import {
   type VerificationResult,
@@ -50,7 +55,7 @@ async function filterBadBlobURLs(
   const checks = await Promise.all(
     urls.map(async (url) => ({
       url,
-      blocked: await isBadBlobSource(sha256, url),
+      blocked: !parseBlossomURL(url) || await isBadBlobSource(sha256, url),
     })),
   );
   return checks.filter((entry) => !entry.blocked).map((entry) => entry.url);
@@ -62,6 +67,7 @@ async function filterBadServers(
 ): Promise<string[]> {
   const checks = await Promise.all(
     servers.map(async (server) => {
+      if (!parseBlossomURL(server)) return { server, blocked: true };
       const url = new URL(sha256, server).toString();
       return { server, blocked: await isBadBlobSource(sha256, url) };
     }),
@@ -158,6 +164,7 @@ export async function findBlobURLs(
   servers: string[],
   options?: { pubkey?: string; blossomProxy?: string },
 ): Promise<string[]> {
+  if (!isBlobHash(sha256)) return [];
   const cached = await getBlobServers(sha256);
   if (cached) {
     const filtered = await filterBadBlobURLs(sha256, cached);
@@ -174,7 +181,7 @@ export async function findBlobURLs(
   const seen = new Set<string>();
 
   let proxyUrlString: string | undefined;
-  if (blossomProxy) {
+  if (blossomProxy && parseBlossomURL(blossomProxy)) {
     try {
       const proxyUrl = new URL(sha256, blossomProxy);
       const queryParams = buildBud10QueryParams(availableServers, pubkey);
@@ -242,7 +249,7 @@ export async function streamBlob(
     blossomProxy?: string;
   },
 ): Promise<Response | undefined> {
-  if (servers.length === 0) return undefined;
+  if (!isBlobHash(sha256) || servers.length === 0) return undefined;
 
   const requestLog = log.extend(sha256.slice(0, 6));
   const urls = await findBlobURLs(sha256, servers, {
@@ -252,7 +259,8 @@ export async function streamBlob(
   if (urls.length === 0) return undefined;
 
   const cached = await getBlobServer(sha256);
-  const preferred = cached && !(await isBadBlobSource(sha256, cached))
+  const preferred = cached && parseBlossomURL(cached) &&
+      !(await isBadBlobSource(sha256, cached))
     ? cached
     : undefined;
   const ordered = preferred
@@ -264,7 +272,7 @@ export async function streamBlob(
   for (const server of ordered) {
     try {
       const controller = new AbortController();
-      const response = await fetch(server, {
+      const response = await fetchBlossom(server, {
         method: init?.method ?? "GET",
         headers: init?.headers,
         signal: AbortSignal.any([

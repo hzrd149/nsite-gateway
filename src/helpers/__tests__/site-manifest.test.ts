@@ -82,48 +82,48 @@ Deno.test("manifest paths normalize relative paths and use the last duplicate", 
   const event = manifest([
     ["title", "Ignored"],
     ["path", ""],
-    ["path", "assets/../index.html", "old"],
-    ["path", "/index.html", "new"],
-    ["path", "assets//main.css", "css"],
+    ["path", "assets/../index.html", "a".repeat(64)],
+    ["path", "/index.html", "b".repeat(64)],
+    ["path", "assets//main.css", "c".repeat(64)],
   ]);
   assertEquals(
     getManifestPaths(event),
     new Map([
-      ["/index.html", "new"],
-      ["/assets/main.css", "css"],
+      ["/index.html", "b".repeat(64)],
+      ["/assets/main.css", "c".repeat(64)],
     ]),
   );
 });
 
 Deno.test("manifest path resolution prefers exact files over directory indexes", () => {
   const event = manifest([
-    ["path", "/docs", "exact"],
-    ["path", "/docs/index.html", "index"],
-    ["path", "/404.html", "missing"],
+    ["path", "/docs", "a".repeat(64)],
+    ["path", "/docs/index.html", "b".repeat(64)],
+    ["path", "/404.html", "c".repeat(64)],
   ]);
   assertEquals(resolveManifestPath(event, "docs"), {
     path: "/docs",
-    sha256: "exact",
+    sha256: "a".repeat(64),
     is404: false,
   });
 });
 
 Deno.test("manifest path resolution serves root and nested directory indexes", () => {
   const event = manifest([
-    ["path", "/index.html", "root"],
-    ["path", "/docs/index.html", "docs"],
+    ["path", "/index.html", "a".repeat(64)],
+    ["path", "/docs/index.html", "b".repeat(64)],
   ]);
   for (const path of ["/", ""]) {
     assertEquals(resolveManifestPath(event, path), {
       path: "/index.html",
-      sha256: "root",
+      sha256: "a".repeat(64),
       is404: false,
     });
   }
   for (const path of ["docs", "/docs/", "/other/../docs"]) {
     assertEquals(resolveManifestPath(event, path), {
       path: "/docs/index.html",
-      sha256: "docs",
+      sha256: "b".repeat(64),
       is404: false,
     });
   }
@@ -131,19 +131,19 @@ Deno.test("manifest path resolution serves root and nested directory indexes", (
 
 Deno.test("missing files use custom 404 without treating file extensions as directories", () => {
   const event = manifest([
-    ["path", "/app.js/index.html", "wrong"],
-    ["path", "/404.html", "missing"],
+    ["path", "/app.js/index.html", "a".repeat(64)],
+    ["path", "/404.html", "b".repeat(64)],
   ]);
   for (const path of ["/app.js", "/unknown", "/unknown/file.css"]) {
     assertEquals(resolveManifestPath(event, path), {
       path: "/404.html",
-      sha256: "missing",
+      sha256: "b".repeat(64),
       is404: true,
     });
   }
   assertEquals(resolveManifestPath(event, "/404.html"), {
     path: "/404.html",
-    sha256: "missing",
+    sha256: "b".repeat(64),
     is404: false,
   });
   assertEquals(resolveManifestPath(manifest(), "/missing"), undefined);
@@ -155,4 +155,20 @@ Deno.test("root manifests ignore d tags while named manifests retain identifiers
     null,
   );
   assertEquals(getManifestIdentifier(manifest([["d", "blog"]])), "blog");
+});
+
+Deno.test("invalid path hashes cannot become fetch targets or overwrite valid paths", () => {
+  const hash = "a".repeat(64);
+  const event = manifest([
+    ["path", "/index.html", hash],
+    ["path", "/index.html", "http://169.254.169.254/latest/meta-data/"],
+    ["path", "/local", "etc/passwd"],
+    ["path", "/file", "file:///etc/passwd"],
+    ["path", "/missing"],
+    ["path", "/uppercase", "A".repeat(64)],
+    ["path", "/short", "a".repeat(63)],
+    ["path", "/long", "a".repeat(65)],
+    ["path", "/nonhex", "g".repeat(64)],
+  ]);
+  assertEquals(getManifestPaths(event), new Map([["/index.html", hash]]));
 });

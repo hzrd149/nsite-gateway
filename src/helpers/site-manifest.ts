@@ -1,8 +1,6 @@
 import { extname, join } from "@std/path/posix";
-import {
-  getBlossomServersFromList,
-  getRelaysFromList,
-} from "applesauce-common/helpers";
+import { getRelaysFromList } from "applesauce-common/helpers";
+import { getBlossomServers, isBlobHash } from "./blossom.ts";
 import {
   getOrComputeCachedValue,
   getReplaceableIdentifier,
@@ -69,7 +67,7 @@ export function getManifestPaths(manifest: NostrEvent): Map<string, string> {
     () =>
       manifest.tags.filter((t) => t[0] === "path" && t[1]).reduce(
         (map, tag) => {
-          map.set(join("/", tag[1]), tag[2]);
+          if (isBlobHash(tag[2])) map.set(join("/", tag[1]), tag[2]);
           return map;
         },
         new Map<string, string>(),
@@ -118,7 +116,7 @@ export function getManifestRelays(manifest: NostrEvent): string[] {
 
 /** Returns the servers listed in a manifest event */
 export function getManifestServers(manifest: NostrEvent): string[] {
-  return getBlossomServersFromList(manifest).map((url) => url.toString());
+  return getBlossomServers(manifest.tags);
 }
 
 /** Returns the identifier of a manifest event */

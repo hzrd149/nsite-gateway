@@ -1,8 +1,6 @@
 import { castUser } from "applesauce-common/casts";
-import {
-  BLOSSOM_SERVER_LIST_KIND,
-  getBlossomServersFromList,
-} from "applesauce-common/helpers";
+import { BLOSSOM_SERVER_LIST_KIND } from "applesauce-common/helpers";
+import { getBlossomServers } from "../helpers/blossom.ts";
 import { EventStore, firstValueFrom, lastValueFrom } from "applesauce-core";
 import {
   type Filter,
@@ -58,7 +56,7 @@ export const eventStore = new EventStore();
 
 // Setup debug logging for incoming nostr events
 eventStore.filters({ kinds: [BLOSSOM_SERVER_LIST_KIND] }).subscribe((list) => {
-  const servers = getBlossomServersFromList(list);
+  const servers = getBlossomServers(list.tags);
   log(
     `Found ${servers.length} blossom servers for ${list.pubkey}, id=${list.id}, age=${
       formatAgeFromUnix(
@@ -291,7 +289,7 @@ export async function getUserBlossomServers(pubkey: string, timeout = 5_000) {
 
   // If results are fresh, return whatever is in the event store
   if (fresh) {
-    return cached && getBlossomServersFromList(cached).map((s) => s.toString());
+    return cached && getBlossomServers(cached.tags);
   }
 
   log(`Fetching blossom servers for ${pubkey}`);
