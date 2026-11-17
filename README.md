@@ -42,6 +42,13 @@ cp .env.example .env
 
 ## Running with Deno
 
+Use **Deno 2.9.8 or newer**, preferably the latest patched stable release. This
+is the minimum recommended version for this gateway's native network-deny
+configuration. Deno 2.8.1 fixed the original `fetch()` resolved-IP permission
+bypass ([advisory](https://github.com/denoland/deno/security/advisories/GHSA-cpgj-f7g3-2pp2));
+our policy is tested on 2.9.8. Upgrading alone does not block private destinations:
+network-deny rules must also be enabled.
+
 ```sh
 deno task start
 ```
@@ -53,7 +60,21 @@ deno task dev
 ```
 
 The Deno tasks already include the required flags (`--unstable-kv`,
-`--env-file=.env`, and the necessary permission flags).
+`--env-file=.env`, and a named permission set).
+
+Permissions are defined once under `permissions` in `deno.json` and can be
+reused by any task or direct invocation with `-P=<name>`:
+
+```sh
+deno run -P=gateway --unstable-kv --env-file=.env main.ts
+deno test -P=test
+```
+
+The `gateway` set preserves access to internal services; `gateway-public-ipv4`
+adds the destination restrictions described below. `test` grants only the unit
+tests' environment access, while `test-network` grants access for the explicit
+network integration suite. Permission sets require explicit `-P` selection;
+merely running from the package directory does not activate them.
 
 If `NOSTR_RELAYS` is set, the gateway will bulk-fetch all known site manifests
 (kinds `15128`, `35128`, and `5128`) from those relays at startup,
@@ -61,6 +82,62 @@ pre-populating the in-memory event store, and then re-check those relays every
 `RLEAY_SYNC_INTERVAL` seconds for newer manifest events. Set
 `RLEAY_SYNC_INTERVAL=live` to keep a persistent relay subscription open instead
 of using periodic sync.
+
+### Public-network-only mode (IPv4 deployments)
+
+**Prerequisite: disable IPv6 egress or block it at the network boundary.**
+Deno 2.9.8 accepts IPv4 subnet rules but rejects IPv6 subnet syntax in its CLI.
+The profile below denies IPv6 loopback explicitly, but cannot block all private
+IPv6 ranges. It is not sufficient for dual-stack hosts without external IPv6
+restrictions.
+
+For an IPv4-only gateway that only needs public upstream services:
+
+```sh
+# Set NSITE_HOST in .env to a public IP assigned to this machine first.
+deno task start:public:ipv4
+# Or use the same permission set without a task:
+deno run -P=gateway-public-ipv4 --no-prompt --unstable-kv --env-file=.env main.ts
+```
+
+This uses native `fetch()` with Deno's `--deny-net` subnet rules to block
+private, loopback, link-local, multicast, documentation and other special-purpose
+IPv4 destinations. Deno checks resolved IPs and connects using those checked
+addresses,
+preventing DNS rebinding between validation and connection. Native connection
+pooling, TLS verification and HTTP/2 are retained. Blossom redirects still use
+the bounded manual redirect loop, so each hop is subject to the runtime policy.
+
+**Deployment constraints:**
+
+- Network permissions apply to the entire process, including listeners, DNS
+  operations, Nostr relays and configured proxies—not just Blossom.
+- The default `NSITE_HOST=0.0.0.0`, private bind addresses and `::` are denied.
+  Bind to an actual public IP assigned to the host. This mode is not a drop-in
+  replacement for the included Docker Compose stack.
+- Local cache-relay/proxy auto-detection will fail harmlessly. Explicit private
+  `BLOSSOM_PROXY`, `BLOSSOM_SERVERS` and relay settings cannot be used in this
+  mode. An `--allow-net` hostname cannot override a denied resolved IP.
+- DNS operations requiring a denied local resolver may fail too; configure
+  resolver access compatible with the policy.
+- Do not route these requests through `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`
+  or another forwarding proxy unless that proxy independently enforces the same
+  destination policy. A proxy can resolve destinations differently.
+- Flower fetches on behalf of publishers and needs its own outbound restrictions.
+  The gateway's Deno permissions do not protect Flower.
+
+The standard `start`/`dev` tasks, executable shebang, JSR command and default
+Docker command still grant unrestricted network access for compatibility with
+private services. **They do not provide private-network SSRF protection.** For
+those deployments, enforce outbound policy at the network/proxy boundary or
+isolate public fetching from trusted internal-service access. Do not weaken the
+deny list merely to get a private service working.
+
+The policy is in `deno.json` (`permissions.gateway-public-ipv4`), not in a task
+command. To exercise native resolved-IP
+checks and redirects using local fixtures, run `deno task test:network` in an
+isolated environment. This explicit test task starts local listeners and child
+Deno processes; the regular unit-test task does not need those permissions.
 
 If `CURATION_USER` is set, the gateway loads that user's mute list via the same
 event loader used elsewhere, keeps it in `eventStore`, and refreshes it on the

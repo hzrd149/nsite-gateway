@@ -8,6 +8,14 @@
   sources, to prevent local-file reads and URL overrides.
 - Follow up to five Blossom redirects with URL validation at every hop and a
   shared timeout, preserving signed object-storage URLs and range requests.
+- Add opt-in public IPv4 network restrictions with `start:public:ipv4`. This
+  mode requires a public bind address, external IPv6 egress restrictions and
+  public upstream services; default launch modes retain unrestricted network
+  access.
+- Recommend Deno 2.9.8 or newer for native resolved-IP network permission
+  checks.
+- Centralize gateway and test permissions as reusable named sets in `deno.json`,
+  selected explicitly with `-P` by tasks or direct Deno commands.
 
 ## 3.6.7
 

@@ -8,11 +8,57 @@
     "lib": ["dom", "dom.iterable", "esnext", "deno.ns", "deno.unstable"]
   },
   "tasks": {
-    "dev": "deno run --unstable-kv --env-file=.env --watch --allow-env --allow-net --allow-read --allow-write main.ts",
-    "start": "deno run --unstable-kv --env-file=.env --allow-env --allow-net --allow-read --allow-write main.ts",
+    "dev": "deno run -P=gateway --unstable-kv --env-file=.env --watch main.ts",
+    "start": "deno run -P=gateway --unstable-kv --env-file=.env main.ts",
+    "start:public:ipv4": "deno run -P=gateway-public-ipv4 --no-prompt --unstable-kv --env-file=.env main.ts",
     "check": "deno check main.ts",
-    "test": "deno test --allow-env=DEBUG,NO_COLOR,FORCE_COLOR,TERM,COLORTERM",
+    "test": "deno test -P=test",
+    "test:network": "deno test -P=test-network src/helpers/integration/native-network.ts",
     "fmt": "deno fmt"
+  },
+  "permissions": {
+    "gateway": {
+      "env": true,
+      "net": true,
+      "read": true,
+      "write": true
+    },
+    "gateway-public-ipv4": {
+      "env": true,
+      "net": {
+        "allow": true,
+        "deny": [
+          "0.0.0.0/8",
+          "10.0.0.0/8",
+          "100.64.0.0/10",
+          "127.0.0.0/8",
+          "169.254.0.0/16",
+          "172.16.0.0/12",
+          "192.0.0.0/24",
+          "192.0.2.0/24",
+          "192.88.99.0/24",
+          "192.168.0.0/16",
+          "198.18.0.0/15",
+          "198.51.100.0/24",
+          "203.0.113.0/24",
+          "224.0.0.0/4",
+          "240.0.0.0/4",
+          "[::]",
+          "[::1]"
+        ]
+      },
+      "read": true,
+      "write": true
+    },
+    "test": {
+      "env": ["DEBUG", "NO_COLOR", "FORCE_COLOR", "TERM", "COLORTERM"]
+    },
+    "test-network": {
+      "net": true,
+      "run": ["deno"],
+      "read": true,
+      "write": true
+    }
   },
   "imports": {
     "@hono/hono": "jsr:@hono/hono@^4.13.19",
