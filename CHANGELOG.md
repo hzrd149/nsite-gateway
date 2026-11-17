@@ -1,5 +1,14 @@
 # nsite-gateway
 
+## Unreleased
+
+### Patch Changes
+
+- Validate manifest SHA-256 hashes and Blossom HTTP(S) URLs, including cached
+  sources, to prevent local-file reads and URL overrides.
+- Follow up to five Blossom redirects with URL validation at every hop and a
+  shared timeout, preserving signed object-storage URLs and range requests.
+
 ## 3.6.7
 
 ### Patch Changes

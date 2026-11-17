@@ -94,7 +94,7 @@ Deno.test("buildIndexedSites retains newest manifest regardless of arrival order
       ["title", "Current"],
       ["description", "Updated description"],
       ["client", "nsyte"],
-      ["path", "/index.html", "hash"],
+      ["path", "/index.html", "a".repeat(64)],
     ],
   });
   for (const events of [[older, newer], [newer, older]]) {
