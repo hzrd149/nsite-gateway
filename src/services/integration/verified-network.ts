@@ -4,13 +4,16 @@ import { createHash } from "node:crypto";
 import { gzipSync } from "node:zlib";
 import { VerifiedBlobCache } from "../verified-blob-cache.ts";
 
-async function within<T>(promise: Promise<T>): Promise<T> {
+async function within<T>(promise: Promise<T>, lifecycle: string): Promise<T> {
   let timer!: ReturnType<typeof setTimeout>;
   try {
     return await Promise.race([
       promise,
       new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error("Lifecycle deadline")), 5000);
+        timer = setTimeout(
+          () => reject(new Error(`Lifecycle deadline: ${lifecycle}`)),
+          5000,
+        );
       }),
     ]);
   } finally {
@@ -115,7 +118,7 @@ Deno.test("corrected Deno abort: successful delivery releases readers, disconnec
   try {
     const response = await fetch(`http://127.0.0.1:${server.addr.port}/small`);
     assertEquals(await response.text(), "ok");
-    await within(success);
+    await within(success, "successful response completes");
     assertEquals(smallSignal?.aborted, false);
     assertEquals(cache.metrics.readers, 0);
     socket = await Deno.connect({
@@ -125,11 +128,11 @@ Deno.test("corrected Deno abort: successful delivery releases readers, disconnec
     await socket.write(new TextEncoder().encode(
       "GET /large HTTP/1.1\r\nHost: fixture\r\n\r\n",
     ));
-    await within(socket.read(new Uint8Array(1024)));
+    await within(socket.read(new Uint8Array(1024)), "large response starts");
     assertEquals(cache.metrics.readers, 1);
     socket.close();
     socket = undefined;
-    await within(disconnected);
+    await within(disconnected, "large response is cancelled");
     assertEquals(cache.metrics.readers, 0);
     socket = await Deno.connect({
       hostname: "127.0.0.1",
@@ -138,10 +141,10 @@ Deno.test("corrected Deno abort: successful delivery releases readers, disconnec
     await socket.write(new TextEncoder().encode(
       "GET /pending HTTP/1.1\r\nHost: fixture\r\n\r\n",
     ));
-    await within(pending);
+    await within(pending, "pending request starts");
     socket.close();
     socket = undefined;
-    await within(aborted);
+    await within(aborted, "pending request is aborted");
   } finally {
     socket?.close();
     await cache.close();
