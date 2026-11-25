@@ -125,7 +125,7 @@ export const SiteName: FC<{ site: DirectorySite; gateway: GatewayContext }> = (
   const href = siteHref(gateway, site.subdomain);
   return (
     <a href={href ?? site.statusPath} title={site.label}>
-      {site.label}/
+      {site.label}
     </a>
   );
 };
