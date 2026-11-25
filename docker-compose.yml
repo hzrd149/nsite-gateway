@@ -8,9 +8,11 @@ services:
       NOSTR_RELAYS: wss://relay.damus.io,wss://nos.lol,wss://nsite.run,wss://relay.primal.net
       CACHE_PATH: /cache/nsite-gateway.kv
       BLOB_CACHE_DIR: /cache/verified-blobs
+      STATS_PATH: /data/stats.db
       BLOSSOM_PROXY: http://blossom:24242
     volumes:
       - nsite_cache:/cache
+      - nsite_data:/data
     ports:
       - 3000:3000
 
@@ -35,6 +37,7 @@ services:
 
 volumes:
   nsite_cache:
+  nsite_data:
   caddy_data:
   caddy_config:
   blossom_cache:

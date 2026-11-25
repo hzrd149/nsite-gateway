@@ -152,6 +152,16 @@ Disk-cache counts, byte budget and timeouts must be positive integers.
 `MAX_FILE_SIZE` must fit within `BLOB_CACHE_BYTES`; full configured concurrency
 needs at least `MAX_FILE_SIZE * BLOB_CACHE_FILLS`.
 
+## Stats
+
+| Variable               | Default           | Description                                                        |
+| ---------------------- | ----------------- | ------------------------------------------------------------------ |
+| `STATS_PATH`           | `./data/stats.db` | SQLite database for analytics, trending and other persistent stats |
+| `STATS_RETENTION_DAYS` | `90`              | Days of daily stats and serve-log records to keep; minimum `7`     |
+
+Keep the stats database on a persistent volume separate from the caches
+([details](caching.md#persistent-stats)).
+
 See [caching and observability](caching.md) for storage ownership, failure
 modes, HTTP semantics and logging. `VERIFY_WORKER_POOL_MAX` is obsolete; the
 serve-first/background-verification path has been removed.

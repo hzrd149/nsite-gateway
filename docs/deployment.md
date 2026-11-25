@@ -55,20 +55,22 @@ docker run --rm -it --name nsite -p 3000:3000 \
   ghcr.io/hzrd149/nsite-gateway:master
 ```
 
-To configure the gateway and retain both caches:
+To configure the gateway and retain both caches and the stats database:
 
 ```sh
 docker run --rm -it --name nsite -p 3000:3000 \
   --env-file .env \
   -e CACHE_PATH=/cache/nsite-gateway.kv \
   -e BLOB_CACHE_DIR=/cache/verified-blobs \
+  -e STATS_PATH=/data/stats.db \
   -v nsite_cache:/cache \
+  -v nsite_data:/data \
   ghcr.io/hzrd149/nsite-gateway:master
 ```
 
 The image enables `--unstable-kv` and the `gateway` permission set, including
-read/write access and `sys:uid` for cache ownership checks. Without a volume,
-cache data is lost when the container is removed.
+read/write access and `sys:uid` for cache ownership checks. Without volumes,
+cache data and stats are lost when the container is removed.
 
 ## Docker Compose
 
@@ -94,7 +96,9 @@ docker compose up -d
 
 The gateway is also reachable directly at `http://localhost:3000`. The
 `nsite_cache` volume stores KV at `/cache/nsite-gateway.kv` and verified blobs
-under `/cache/verified-blobs`. Separate volumes persist Caddy state and Flower's
+under `/cache/verified-blobs`. The separate `nsite_data` volume holds the stats
+database at `/data/stats.db`, so the cache volume can be wiped without losing
+visit counts or trending data. Separate volumes persist Caddy state and Flower's
 cache.
 
 ## DNS and TLS

@@ -86,13 +86,36 @@ in the `nsite_cache` volume.
 ## Metadata and event caches
 
 Deno KV caches DNS resolution (hostname to public key and site identifier), blob
-source hints and server lists, and user profiles used by gateway pages. Set
+source hints and server lists. Analytics are kept in the separate
+[stats database](#persistent-stats). Set
 `CACHE_PATH=./data/cache` for an explicit database location; otherwise Deno uses
 its default local KV location.
 
 Fetched Nostr events remain in the in-memory event store for the process
 lifetime. Set `CACHE_RELAYS=ws://localhost:4869` to persist them through a cache
 relay. A relay running at that address is auto-detected.
+
+## Persistent stats
+
+Analytics live in a dedicated SQLite database (`STATS_PATH`, default
+`./data/stats.db`), separate from the KV cache, so clearing caches never resets
+them. It holds:
+
+- Per-site daily and all-time counters: human page views (which drive trending),
+  bot page views, file requests, not-found and unavailable responses.
+- The per-path serve log shown on status pages, with request counts (newest 300
+  paths per site).
+- Gateway counters: requests by status class, site/gateway/invalid host and blob
+  cache outcome, plus cumulative blob cache metrics and total uptime.
+- A directory snapshot of indexed sites and author names, used to render the
+  home, trending, site and author pages immediately after a restart until relays
+  have been synced again.
+- The last relay sync time and profile lookup times.
+
+Counters are buffered in memory and written every 10 seconds and on graceful
+shutdown. Daily rows and serve-log records older than `STATS_RETENTION_DAYS`
+(default 90) are pruned; all-time totals are kept. Stats written to the KV cache
+by earlier versions are imported once on startup and then removed from KV.
 
 ## HTTP caching
 
@@ -150,7 +173,9 @@ failures, corrupt responses, evictions, rejections, bytes, reservations, active
 fills, pending jobs, waiters and readers. Source failures include the hash
 prefix, source origin and reason. `DEBUG=nsite:*` enables admission diagnostics.
 The gateway's [`/health`](routing.md#gateway-pages) endpoint also exposes
-verified blob cache metrics.
+live verified blob cache metrics, plus `firstStartedAt`, `totalUptime`,
+cumulative `requests` counters and `blobCacheTotals` from the
+[stats database](#persistent-stats).
 
 Every response-ready request log includes host/path, HTTP status and:
 
