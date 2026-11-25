@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 3.7.0
+
 ### Minor Changes
 
 - Redesign gateway pages with directory search, sortable site listings, author
