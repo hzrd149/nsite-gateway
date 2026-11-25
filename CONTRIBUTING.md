@@ -1,6 +1,6 @@
 # Contributing
 
-Start with the [README](README.md) for the project overview and codebase map.
+Start with the [README](README.md) for the project overview.
 Read [AGENTS.md](AGENTS.md) for repository-specific working instructions.
 
 ## Development setup
@@ -103,8 +103,7 @@ publishes events or accesses gateway caches.
 
 ## Submitting changes
 
-- Follow the surrounding TypeScript, Hono and service patterns. Use the
-  [codebase map](README.md#codebase-map) to find the relevant layer.
+- Follow the surrounding TypeScript, Hono and service patterns.
 - Keep changes focused and add or update tests for behavior changes.
 - Update the relevant guide in `docs/` when configuration or deployment changes;
   keep the README focused on orientation.

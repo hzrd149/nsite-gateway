@@ -37,23 +37,6 @@ Open <http://localhost:3000> for the directory or <http://localhost:3000/health>
 for runtime status. Site requests use their own hostnames; see
 [local site requests](CONTRIBUTING.md#local-site-requests).
 
-## Codebase map
-
-| Entry point                                                                  | Responsibility                                                 |
-| ---------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| [`main.ts`](main.ts)                                                         | Server startup, relay hydration, background services, shutdown |
-| [`src/server.ts`](src/server.ts)                                             | Hono middleware and hostname-based routing                     |
-| [`src/env.ts`](src/env.ts)                                                   | Environment configuration and defaults                         |
-| [`src/routes/`](src/routes/)                                                 | Site serving and gateway page routes                           |
-| [`src/services/nostr.ts`](src/services/nostr.ts)                             | Event store, relay discovery, manifest loading and sync        |
-| [`src/services/dns.ts`](src/services/dns.ts)                                 | Hostname and CNAME resolution                                  |
-| [`src/services/blossom.ts`](src/services/blossom.ts)                         | Blob source discovery and cache integration                    |
-| [`src/services/verified-blob-cache.ts`](src/services/verified-blob-cache.ts) | Verified disk storage, admission limits and eviction           |
-| [`src/services/`](src/services/)                                             | Metadata caching, directory, curation, analytics and telemetry |
-| [`src/pages/`](src/pages/)                                                   | Server-rendered UI                                             |
-| [`src/helpers/`](src/helpers/)                                               | Protocol, HTTP and lifecycle utilities                         |
-| [`deno.json`](deno.json)                                                     | Tasks, named permissions and dependencies                      |
-
 ## Documentation
 
 - [Configuration](docs/configuration.md): environment variables, relays,
