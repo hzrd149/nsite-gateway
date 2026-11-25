@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Store visit counts and serve logs in a dedicated SQLite stats database
+  (`STATS_PATH`, default `./data/stats.db`) instead of the KV cache, so clearing
+  the cache keeps them. Existing KV stats are imported once on startup. Daily
+  stats and serve logs are kept for `STATS_RETENTION_DAYS` (default 90).
+- Track bot page views, file requests, not-found and unavailable responses per
+  site, plus per-path request counts, and show them on site status pages.
 - Fix lost visit counts and serve-log records on graceful shutdown: buffered
   stats are now flushed before the KV store closes.
 

@@ -36,7 +36,7 @@ import {
   SiteUnknownPage,
   type StatusPath,
 } from "../pages/gateway/status.tsx";
-import { getHitCount } from "../services/analytics.ts";
+import { getSiteTotals } from "../services/analytics.ts";
 import { getBadBlobSource } from "../services/cache.ts";
 import { getDirectory } from "../services/directory.ts";
 import { eventStore, getLastRelaySync } from "../services/nostr.ts";
@@ -109,10 +109,8 @@ export async function siteStatusRoute(c: Context): Promise<Response> {
   const userServers = userServerList &&
     getBlossomServers(userServerList.tags);
 
-  const [serveLog, allTime] = await Promise.all([
-    getServeLog(parsed),
-    isSnapshot ? Promise.resolve(0) : getHitCount(pubkey, identifier),
-  ]);
+  const serveLog = await getServeLog(parsed);
+  const totals = isSnapshot ? undefined : getSiteTotals(pubkey, identifier);
 
   const manifestPaths = getManifestPaths(manifest);
   const paths: StatusPath[] = [...manifestPaths.entries()]
@@ -221,7 +219,12 @@ export async function siteStatusRoute(c: Context): Promise<Response> {
     userServers,
     fallbackServers: BLOSSOM_SERVERS,
     hits: {
-      allTime,
+      allTime: totals?.views ?? 0,
+      botViews: totals?.bot_views ?? 0,
+      requests: totals?.requests ?? 0,
+      notFound: totals?.not_found ?? 0,
+      unavailable: totals?.unavailable ?? 0,
+      since: totals?.firstSeenAt,
       daily: indexed?.dailyHits ?? new Array(TRENDING_DAYS).fill(0),
     },
     paths,

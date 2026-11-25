@@ -70,7 +70,7 @@ const server = Deno.serve(
 );
 
 startCurationService();
-startAnalyticsService();
+await startAnalyticsService();
 startDirectoryService();
 
 // Hydrate from nostr relays when set

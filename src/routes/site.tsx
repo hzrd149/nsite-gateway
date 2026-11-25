@@ -29,7 +29,7 @@ import { PathNotFound } from "../pages/path-not-found.tsx";
 import { SiteLoading } from "../pages/site-loading.tsx";
 import { SiteNotFound } from "../pages/site-not-found.tsx";
 import { isBotUserAgent } from "../helpers/bots.ts";
-import { incrementHitCount } from "../services/analytics.ts";
+import { recordSiteEvent } from "../services/analytics.ts";
 import { streamBlob, verifiedBlobCache } from "../services/blossom.ts";
 import { getManifest, getUserBlossomServers } from "../services/nostr.ts";
 import { recordServe } from "../services/site-telemetry.ts";
@@ -219,6 +219,7 @@ export async function handleSiteRequest(
   const match = resolveManifestPath(manifest, url.pathname);
   if (!match) {
     recordServe(site, url.pathname, { status: 404, result: "path-not-found" });
+    recordSiteEvent(manifest.pubkey, identifier, "not_found");
     const paths = [...getManifestPaths(manifest).keys()];
     return c.html(
       html`
@@ -234,12 +235,16 @@ export async function handleSiteRequest(
     );
   }
 
-  // Count human page views of .html pages (including 404.html)
-  if (
-    method === "GET" && match.path.endsWith(".html") &&
-    !isBotUserAgent(request.headers.get("user-agent"))
-  ) {
-    void incrementHitCount(manifest.pubkey, identifier);
+  // Count every matched file request, and page views of .html pages
+  // (including 404.html) split into human and bot views
+  recordSiteEvent(manifest.pubkey, identifier, "requests");
+  if (match.is404) recordSiteEvent(manifest.pubkey, identifier, "not_found");
+  if (method === "GET" && match.path.endsWith(".html")) {
+    recordSiteEvent(
+      manifest.pubkey,
+      identifier,
+      isBotUserAgent(request.headers.get("user-agent")) ? "bot_views" : "views",
+    );
   }
 
   // Conditional responses are evaluated only after local bytes are verified.
@@ -273,6 +278,7 @@ export async function handleSiteRequest(
   });
 
   if (!upstream || upstream.status >= 500) {
+    recordSiteEvent(manifest.pubkey, identifier, "unavailable");
     recordServe(site, match.path, {
       status: upstream?.status ?? 502,
       result: "unavailable",

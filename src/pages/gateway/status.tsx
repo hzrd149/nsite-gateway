@@ -50,7 +50,16 @@ export type SiteStatusData = {
   manifestServers: string[];
   userServers?: string[];
   fallbackServers: string[];
-  hits: { allTime: number; daily: number[] };
+  hits: {
+    allTime: number;
+    daily: number[];
+    botViews: number;
+    requests: number;
+    notFound: number;
+    unavailable: number;
+    /** Unix ms of the first recorded request */
+    since?: number;
+  };
   paths: StatusPath[];
   /** Paths requested but missing from the manifest */
   missing: { path: string; record: ServeRecord }[];
@@ -281,6 +290,17 @@ export const SiteStatusPage: FC<{ data: SiteStatusData }> = ({ data }) => {
           {formatCount(data.hits.daily.reduce((a, b) => a + b, 0))}{" "}
           visits in 7 days · {formatCount(data.hits.allTime)} all time{" "}
           <span class="muted">(page views, bots excluded)</span>
+          <p class="muted">
+            {formatCount(data.hits.botViews)} bot page views ·{" "}
+            {formatCount(data.hits.requests)} file requests ·{" "}
+            {formatCount(data.hits.notFound)} not found ·{" "}
+            {formatCount(data.hits.unavailable)} unavailable
+            {data.hits.since
+              ? ` · since ${
+                new Date(data.hits.since).toISOString().slice(0, 10)
+              }`
+              : ""}
+          </p>
         </Section>
       )}
 

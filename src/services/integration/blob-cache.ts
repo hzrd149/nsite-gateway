@@ -1,4 +1,4 @@
-// Explicit integration suite: uses an isolated in-memory KV and mocked HTTP.
+// Explicit integration suite: uses isolated in-memory KV and stats databases and mocked HTTP.
 // Run with `deno task test:blob-cache`.
 import { assertEquals, assertRejects } from "jsr:@std/assert";
 import { Hono } from "@hono/hono";
@@ -13,6 +13,7 @@ import {
 
 // Configure before importing the services; never open the operator's cache.
 Deno.env.set("CACHE_PATH", ":memory:");
+Deno.env.set("STATS_PATH", ":memory:");
 Deno.env.set("CACHE_RELAYS", "wss://cache.example");
 Deno.env.set("BLOSSOM_PROXY", "https://proxy.example/");
 const directory = await Deno.makeTempDir();

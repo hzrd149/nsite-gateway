@@ -1,148 +1,149 @@
+import { STATS_RETENTION_DAYS } from "../env.ts";
 import logger from "../helpers/debug.ts";
 import { onShutdown } from "../helpers/shutdown.ts";
+import {
+  applySiteDeltas,
+  dayKey,
+  importLegacyKvStats,
+  pruneStats,
+  readDailyViews,
+  readSiteTotals,
+  type SiteCounterField,
+  type SiteCounters,
+  type SiteDelta,
+  type SiteTotals,
+} from "../helpers/stats-store.ts";
 import { cache } from "./cache.ts";
+import { SERVE_LOG_MAX_PATHS } from "./site-telemetry.ts";
+import { statsDb } from "./stats-db.ts";
 
 const log = logger.extend("analytics");
 
-/** How long daily hit buckets are kept */
-const DAILY_RETENTION_DAYS = 30;
-/** How often buffered hits are written to KV */
-const FLUSH_INTERVAL = 30_000;
-/** Max mutations per KV atomic operation (Deno KV allows 1000) */
-const MAX_MUTATIONS = 500;
+/** How often buffered site counters are written to the stats database */
+const FLUSH_INTERVAL = 10_000;
+/** How often old daily rows are pruned */
+const PRUNE_INTERVAL = 6 * 60 * 60 * 1000;
 
-/** Pending hits keyed by `${pubkey}:${identifier}` (day is captured at flush) */
-let pending = new Map<
-  string,
-  { pubkey: string; identifier: string; n: number }
->();
-let pendingDay = dayKey();
+/** Pending counter deltas keyed by `${day}:${pubkey}:${identifier}` */
+let pending = new Map<string, SiteDelta>();
 
-/** UTC day key, e.g. 2026-11-25 */
-function dayKey(time = Date.now()): string {
-  return new Date(time).toISOString().slice(0, 10);
-}
-
-/** Returns the last `days` UTC day keys, oldest first */
-function lastDayKeys(days: number, now = Date.now()): string[] {
-  const keys: string[] = [];
-  for (let i = days - 1; i >= 0; i--) {
-    keys.push(dayKey(now - i * 86_400_000));
-  }
-  return keys;
-}
-
-/** Record a page view for a site. Buffered in memory; never awaits I/O. */
-export function incrementHitCount(pubkey: string, identifier: string) {
-  const today = dayKey();
-  if (today !== pendingDay) {
-    // Day rolled over: flush yesterday's buffer under its own day
-    void flushHits();
-  }
-  const key = `${pubkey}:${identifier}`;
-  const entry = pending.get(key);
-  if (entry) entry.n++;
-  else pending.set(key, { pubkey, identifier, n: 1 });
-}
-
-/** Writes buffered hits to KV */
-async function flushHits(): Promise<void> {
-  if (pending.size === 0) {
-    pendingDay = dayKey();
-    return;
-  }
-  const batch = [...pending.values()];
-  const day = pendingDay;
-  pending = new Map();
-  pendingDay = dayKey();
-
-  for (let i = 0; i < batch.length; i += MAX_MUTATIONS / 2) {
-    try {
-      const op = cache.atomic();
-      const chunk = batch.slice(i, i + MAX_MUTATIONS / 2);
-      for (const { pubkey, identifier, n } of chunk) {
-        op.sum(["analytics", pubkey, identifier], BigInt(n));
-        op.sum(["analytics-day", day, pubkey, identifier], BigInt(n));
-      }
-      await op.commit();
-    } catch (error) {
-      log("Failed to flush hits", error);
-    }
-  }
-}
-
-/** Get the total all-time hit count for a site. */
-export async function getHitCount(
+/**
+ * Records a site event (page view, bot view, file request, 404, failure).
+ * Buffered in memory; never does I/O.
+ */
+export function recordSiteEvent(
   pubkey: string,
   identifier: string,
-): Promise<number> {
-  const entry = await cache.get<Deno.KvU64>(["analytics", pubkey, identifier]);
-  return entry.value ? Number(entry.value) : 0;
+  field: SiteCounterField,
+  n = 1,
+): void {
+  const day = dayKey();
+  const key = `${day}:${pubkey}:${identifier}`;
+  let entry = pending.get(key);
+  if (!entry) {
+    entry = { day, pubkey, identifier, counts: {} };
+    pending.set(key, entry);
+  }
+  entry.counts[field] = (entry.counts[field] ?? 0) + n;
+}
+
+/** Record a human page view for a site */
+export function incrementHitCount(pubkey: string, identifier: string) {
+  recordSiteEvent(pubkey, identifier, "views");
+}
+
+/** Writes buffered site counters to the stats database */
+export function flushSiteStats(): void {
+  if (pending.size === 0) return;
+  const batch = [...pending.values()];
+  pending = new Map();
+  try {
+    applySiteDeltas(statsDb, batch);
+  } catch (error) {
+    log("Failed to flush site stats", error);
+  }
+}
+
+function pendingFor(pubkey: string, identifier: string): Partial<SiteCounters> {
+  const sum: Partial<SiteCounters> = {};
+  for (const entry of pending.values()) {
+    if (entry.pubkey !== pubkey || entry.identifier !== identifier) continue;
+    for (const [field, n] of Object.entries(entry.counts)) {
+      const f = field as SiteCounterField;
+      sum[f] = (sum[f] ?? 0) + (n ?? 0);
+    }
+  }
+  return sum;
+}
+
+/** All-time counters for a site, including unflushed events */
+export function getSiteTotals(pubkey: string, identifier: string): SiteTotals {
+  const totals = readSiteTotals(statsDb, pubkey, identifier);
+  for (const [field, n] of Object.entries(pendingFor(pubkey, identifier))) {
+    totals[field as SiteCounterField] += n ?? 0;
+  }
+  return totals;
+}
+
+/** Get the total all-time human page views for a site. */
+export function getHitCount(pubkey: string, identifier: string): number {
+  return getSiteTotals(pubkey, identifier).views;
 }
 
 /**
- * Reads daily hits for every site over the last `days` days.
+ * Reads daily human page views for every site over the last `days` days.
  * Returns counts keyed by `${pubkey}:${identifier}`, oldest day first.
- * Only called by the background directory rebuild.
  */
-export async function getDailyHits(
+export function getDailyHits(
   days: number,
   now = Date.now(),
-): Promise<Map<string, number[]>> {
-  const result = new Map<string, number[]>();
-  const keys = lastDayKeys(days, now);
-
-  for (let d = 0; d < keys.length; d++) {
-    const iter = cache.list<Deno.KvU64>({ prefix: ["analytics-day", keys[d]] });
-    for await (const entry of iter) {
-      const [, , pubkey, identifier] = entry.key as string[];
-      const key = `${pubkey}:${identifier}`;
-      let counts = result.get(key);
-      if (!counts) {
-        counts = new Array(days).fill(0);
-        result.set(key, counts);
-      }
-      counts[d] += Number(entry.value.value);
-    }
-  }
-
-  return result;
+): Map<string, number[]> {
+  return readDailyViews(statsDb, days, now);
 }
 
-/** Deletes daily buckets older than the retention window */
-async function pruneDailyHits(now = Date.now()): Promise<number> {
-  const cutoff = dayKey(now - DAILY_RETENTION_DAYS * 86_400_000);
-  let removed = 0;
-  const iter = cache.list({
-    start: ["analytics-day", ""],
-    end: ["analytics-day", cutoff],
-  });
-  for await (const entry of iter) {
-    await cache.delete(entry.key);
-    removed++;
+/** Imports stats written to the KV cache by earlier versions (runs once) */
+async function importLegacyStats(): Promise<void> {
+  try {
+    const result = await importLegacyKvStats(
+      statsDb,
+      cache,
+      SERVE_LOG_MAX_PATHS,
+    );
+    if (result) {
+      log(
+        `Imported legacy KV stats: ${result.totals} site totals, ${result.days} daily buckets, ${result.serveLogs} serve logs`,
+      );
+    }
+  } catch (error) {
+    log("Failed to import legacy KV stats", error);
   }
-  return removed;
 }
 
 let flushTimer: ReturnType<typeof setInterval> | undefined;
 let pruneTimer: ReturnType<typeof setInterval> | undefined;
 
 /** Starts periodic flush and pruning of analytics */
-export function startAnalyticsService(): void {
+export async function startAnalyticsService(): Promise<void> {
   if (flushTimer !== undefined) return;
-  flushTimer = setInterval(() => void flushHits(), FLUSH_INTERVAL);
-  const prune = () =>
-    pruneDailyHits()
-      .then((n) => n > 0 && log(`Pruned ${n} old daily hit buckets`))
-      .catch((error) => log("Failed to prune daily hits", error));
-  void prune();
-  pruneTimer = setInterval(prune, 6 * 60 * 60 * 1000);
+  flushTimer = setInterval(flushSiteStats, FLUSH_INTERVAL);
+  const prune = () => {
+    try {
+      const n = pruneStats(statsDb, STATS_RETENTION_DAYS);
+      if (n > 0) log(`Pruned ${n} old stats rows`);
+    } catch (error) {
+      log("Failed to prune stats", error);
+    }
+  };
+  pruneTimer = setInterval(prune, PRUNE_INTERVAL);
 
   onShutdown(() => {
     clearInterval(flushTimer);
     clearInterval(pruneTimer);
     return Promise.resolve();
   });
-  // Runs before the KV store closes in the "storage" phase
-  onShutdown(() => flushHits(), "flush");
+  // Runs before the stats database closes in the "storage" phase
+  onShutdown(() => Promise.resolve(flushSiteStats()), "flush");
+
+  await importLegacyStats();
+  prune();
 }

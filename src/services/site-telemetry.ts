@@ -1,7 +1,13 @@
 import logger from "../helpers/debug.ts";
 import type { ResolvedSiteAddress } from "../helpers/resolved-site.ts";
 import { onShutdown } from "../helpers/shutdown.ts";
-import { cache } from "./cache.ts";
+import {
+  readServeLog,
+  type ServeLogRow,
+  serveLogSiteKey,
+  upsertServeLog,
+} from "../helpers/stats-store.ts";
+import { statsDb } from "./stats-db.ts";
 
 const log = logger.extend("telemetry");
 
@@ -22,24 +28,19 @@ export type ServeRecord = {
   h?: string;
   /** Unix ms */
   t: number;
+  /** Times this path was served within the retention window */
+  n?: number;
 };
 
 export type ServeLog = Record<string, ServeRecord>;
 
-/** Max paths remembered per site (KV values are limited to 64 KiB) */
-const MAX_PATHS = 300;
-const FLUSH_DELAY = 15_000;
-const SERVE_LOG_TTL = 7 * 24 * 60 * 60 * 1000;
+/** Max paths remembered per site */
+export const SERVE_LOG_MAX_PATHS = 300;
+const FLUSH_DELAY = 10_000;
 
-const logs = new Map<string, { key: Deno.KvKey; log: ServeLog }>();
-const dirty = new Set<string>();
+/** Unflushed records per site key, with per-path counts since the last flush */
+let pending = new Map<string, Map<string, ServeLogRow>>();
 let flushTimer: ReturnType<typeof setTimeout> | undefined;
-
-function getServeLogKey(site: ResolvedSiteAddress): Deno.KvKey {
-  return site.type === "snapshot"
-    ? ["serve-log", "snapshot", site.id]
-    : ["serve-log", site.pubkey, site.identifier];
-}
 
 function hostnameOf(url?: string): string | undefined {
   if (!url) return undefined;
@@ -50,71 +51,73 @@ function hostnameOf(url?: string): string | undefined {
   }
 }
 
-function trim(serveLog: ServeLog): ServeLog {
-  const entries = Object.entries(serveLog);
-  if (entries.length <= MAX_PATHS) return serveLog;
-  entries.sort((a, b) => b[1].t - a[1].t);
-  return Object.fromEntries(entries.slice(0, MAX_PATHS));
-}
-
-/** Records the result of serving a path. In-memory; flushed to KV later. */
+/** Records the result of serving a path. In-memory; flushed later. */
 export function recordServe(
   site: ResolvedSiteAddress,
   path: string,
   result: { status: number; result: ServeResult; server?: string },
 ): void {
-  const key = getServeLogKey(site);
-  const id = JSON.stringify(key);
-  let entry = logs.get(id);
-  if (!entry) {
-    entry = { key, log: {} };
-    logs.set(id, entry);
+  const key = serveLogSiteKey(site);
+  let paths = pending.get(key);
+  if (!paths) {
+    paths = new Map();
+    pending.set(key, paths);
   }
-  entry.log[path.slice(0, 512)] = {
-    s: result.status,
-    r: result.result,
-    h: hostnameOf(result.server),
-    t: Date.now(),
-  };
-  if (Object.keys(entry.log).length > MAX_PATHS * 1.2) {
-    entry.log = trim(entry.log);
-  }
-  dirty.add(id);
-  flushTimer ??= setTimeout(() => void flushServeLogs(), FLUSH_DELAY);
+  const trimmed = path.slice(0, 512);
+  const previous = paths.get(trimmed);
+  paths.set(trimmed, {
+    path: trimmed,
+    status: result.status,
+    result: result.result,
+    host: hostnameOf(result.server),
+    at: Date.now(),
+    count: (previous?.count ?? 0) + 1,
+  });
+  // Bound memory between flushes; the database trims to the newest paths
+  if (paths.size > SERVE_LOG_MAX_PATHS * 2) flushServeLogs();
+  flushTimer ??= setTimeout(flushServeLogs, FLUSH_DELAY);
 }
 
-/** Merges in-memory records into KV */
-async function flushServeLogs(): Promise<void> {
+/** Writes pending records to the stats database */
+export function flushServeLogs(): void {
+  if (flushTimer !== undefined) clearTimeout(flushTimer);
   flushTimer = undefined;
-  const ids = [...dirty];
-  dirty.clear();
-
-  for (const id of ids) {
-    const entry = logs.get(id);
-    if (!entry) continue;
+  const batch = pending;
+  pending = new Map();
+  for (const [key, paths] of batch) {
     try {
-      const stored = await cache.get<ServeLog>(entry.key);
-      const merged = trim({ ...(stored.value ?? {}), ...entry.log });
-      await cache.set(entry.key, merged, { expireIn: SERVE_LOG_TTL });
-      // Keep memory bounded: the merged copy now lives in KV
-      logs.delete(id);
+      upsertServeLog(statsDb, key, [...paths.values()], SERVE_LOG_MAX_PATHS);
     } catch (error) {
       log("Failed to flush serve log", error);
     }
   }
 }
 
-/** Reads the serve log for a site (one KV read, plus unflushed records) */
-export async function getServeLog(
-  site: ResolvedSiteAddress,
-): Promise<ServeLog> {
-  const key = getServeLogKey(site);
-  const stored = await cache.get<ServeLog>(key);
-  const pendingLog = logs.get(JSON.stringify(key))?.log;
-  return { ...(stored.value ?? {}), ...(pendingLog ?? {}) };
+function toRecord(row: ServeLogRow): ServeRecord {
+  return {
+    s: row.status,
+    r: row.result as ServeResult,
+    h: row.host,
+    t: row.at,
+    n: row.count,
+  };
 }
 
-onShutdown(async () => {
-  if (flushTimer !== undefined) clearTimeout(flushTimer);
-  await flushServeLogs().catch(() => {});
-}, "flush");
+/** Reads the serve log for a site, including unflushed records */
+export function getServeLog(site: ResolvedSiteAddress): Promise<ServeLog> {
+  const key = serveLogSiteKey(site);
+  const serveLog: ServeLog = {};
+  for (const row of readServeLog(statsDb, key, SERVE_LOG_MAX_PATHS)) {
+    serveLog[row.path] = toRecord(row);
+  }
+  for (const row of pending.get(key)?.values() ?? []) {
+    const stored = serveLog[row.path];
+    serveLog[row.path] = {
+      ...toRecord(row),
+      n: (stored?.n ?? 0) + row.count,
+    };
+  }
+  return Promise.resolve(serveLog);
+}
+
+onShutdown(() => Promise.resolve(flushServeLogs()), "flush");
