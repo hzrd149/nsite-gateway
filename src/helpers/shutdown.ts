@@ -1,9 +1,36 @@
-const handlers: Array<() => Promise<void>> = [];
+/**
+ * Shutdown phases, run in this order:
+ * - `default`: stop timers, subscriptions, network clients and the server
+ * - `flush`: write in-memory buffers to storage
+ * - `storage`: close databases and caches
+ */
+export type ShutdownPhase = "default" | "flush" | "storage";
+
+const PHASES: readonly ShutdownPhase[] = ["default", "flush", "storage"];
+
+const handlers: Array<{ fn: () => Promise<void>; phase: ShutdownPhase }> = [];
 
 let shuttingDown = false;
 
-export function onShutdown(fn: () => Promise<void>) {
-  handlers.push(fn);
+export function onShutdown(
+  fn: () => Promise<void>,
+  phase: ShutdownPhase = "default",
+) {
+  handlers.push({ fn, phase });
+}
+
+/** Runs every handler phase by phase, in registration order within a phase */
+export async function runShutdownHandlers(): Promise<void> {
+  for (const phase of PHASES) {
+    for (const handler of handlers) {
+      if (handler.phase !== phase) continue;
+      try {
+        await handler.fn();
+      } catch (error) {
+        console.error(`Shutdown handler (${phase}) failed:`, error);
+      }
+    }
+  }
 }
 
 async function runShutdown() {
@@ -13,9 +40,7 @@ async function runShutdown() {
   }
 
   shuttingDown = true;
-  for (const fn of handlers) {
-    await fn();
-  }
+  await runShutdownHandlers();
 
   console.log("Shutting down...");
   if (!Deno.env.has("DENO_WATCH_HMAC")) {

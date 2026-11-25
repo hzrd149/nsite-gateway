@@ -138,10 +138,11 @@ export function startAnalyticsService(): void {
   void prune();
   pruneTimer = setInterval(prune, 6 * 60 * 60 * 1000);
 
-  onShutdown(async () => {
+  onShutdown(() => {
     clearInterval(flushTimer);
     clearInterval(pruneTimer);
-    // The KV store may already be closed if it registered its handler first
-    await flushHits().catch(() => {});
+    return Promise.resolve();
   });
+  // Runs before the KV store closes in the "storage" phase
+  onShutdown(() => flushHits(), "flush");
 }

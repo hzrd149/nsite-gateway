@@ -117,4 +117,4 @@ export async function getServeLog(
 onShutdown(async () => {
   if (flushTimer !== undefined) clearTimeout(flushTimer);
   await flushServeLogs().catch(() => {});
-});
+}, "flush");

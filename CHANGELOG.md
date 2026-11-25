@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Fix lost visit counts and serve-log records on graceful shutdown: buffered
+  stats are now flushed before the KV store closes.
+
 ## 3.7.1
 
 ### Patch Changes

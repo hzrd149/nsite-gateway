@@ -28,7 +28,7 @@ onShutdown(async () => {
   } catch (err) {
     log("Got error while closing cache KV store: %s", logValue(err));
   }
-});
+}, "storage");
 
 /** Gets the resolved nsite pointer for a domain */
 export async function getDNSPubkey(domain: string) {
