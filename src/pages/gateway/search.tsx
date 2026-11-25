@@ -1,14 +1,14 @@
 import type { FC } from "@hono/hono/jsx";
-import type { Directory } from "../helpers/directory.ts";
-import { MAX_SITE_RESULTS, type SearchResults } from "../helpers/search.ts";
-import { SiteRows } from "./home.tsx";
+import type { Directory } from "../../helpers/directory.ts";
+import { pluralize } from "../../helpers/format.ts";
+import { MAX_SITE_RESULTS, type SearchResults } from "../../helpers/search.ts";
 import {
-  Chip,
+  AuthorItem,
   type GatewayContext,
-  Layout,
-  pluralize,
+  SiteTable,
   TopBar,
-} from "./layout.tsx";
+} from "./components.tsx";
+import { Layout } from "./layout.tsx";
 
 export const SearchPage: FC<{
   directory: Directory;
@@ -21,7 +21,7 @@ export const SearchPage: FC<{
 
   return (
     <Layout title={`${query} · search · ${gateway.host}`} noindex>
-      <TopBar gateway={gateway} subtitle="search" address={query} />
+      <TopBar gateway={gateway} subtitle="search" query={query} />
       {notice && <p class="error" role="alert">{notice}</p>}
 
       {empty
@@ -49,13 +49,11 @@ export const SearchPage: FC<{
           <h3>AUTHORS</h3>
           <ul class="author-grid">
             {authors.map((author) => (
-              <li key={author.pubkey}>
-                <Chip pubkey={author.pubkey} label={author.label} />
-                <a href={`/author/${author.npub}`}>{author.label}</a>
-                <span class="n">
-                  {pluralize(author.siteKeys.length, "site")}
-                </span>
-              </li>
+              <AuthorItem
+                key={author.pubkey}
+                author={author}
+                count={pluralize(author.siteKeys.length, "site")}
+              />
             ))}
           </ul>
         </section>
@@ -64,28 +62,12 @@ export const SearchPage: FC<{
       {sites.length > 0 && (
         <section>
           <h3>SITES</h3>
-          <div class="scroll">
-            <table>
-              <thead>
-                <tr>
-                  <th>name</th>
-                  <th>author</th>
-                  <th class="num">files</th>
-                  <th>7d visits</th>
-                  <th class="num">modified (utc)</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                <SiteRows
-                  sites={sites}
-                  directory={directory}
-                  gateway={gateway}
-                  showStatus
-                />
-              </tbody>
-            </table>
-          </div>
+          <SiteTable
+            sites={sites}
+            directory={directory}
+            gateway={gateway}
+            columns={{ author: true, status: true }}
+          />
         </section>
       )}
     </Layout>

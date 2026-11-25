@@ -155,13 +155,13 @@ td.name .desc {
 }
 
 /* address form */
-.open {
+.search {
   display: flex;
   flex: 1;
   max-width: 460px;
   min-width: min(100%, 260px);
 }
-.open input {
+.search input {
   flex: 1;
   min-width: 0;
   font: inherit;
@@ -170,7 +170,7 @@ td.name .desc {
   background: var(--bg);
   color: var(--fg);
 }
-.open button {
+.search button {
   font: inherit;
   padding: 6px 14px;
   border: 1px solid var(--fg);
@@ -310,8 +310,12 @@ aside .n {
 }
 .man .indent {
   padding-left: 4ch;
-  max-width: 100ch;
   min-width: 0;
+}
+/* Prose stays readable; tables use the full width */
+.man .indent > p,
+.man .indent > dl {
+  max-width: 100ch;
 }
 @media (max-width: 600px) {
   .man .indent {
@@ -366,4 +370,25 @@ details summary {
 }
 section h3 {
   margin-top: 20px;
+}
+
+/* Values meant to be copied (npubs, ids, hashes, URLs): a double-click or
+   click selects the whole value, even when it wraps across lines. */
+.copy {
+  -webkit-user-select: all;
+  user-select: all;
+  overflow-wrap: anywhere;
+  cursor: text;
+}
+/* Long hashes are clipped visually, but copying still yields the full value */
+.copy.hash {
+  display: inline-block;
+  max-width: 14ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+pre.copy {
+  white-space: pre-wrap;
 }

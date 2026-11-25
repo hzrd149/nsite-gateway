@@ -22,6 +22,8 @@
 - Search sites by title, identifier and description, and authors by name or npub
   prefix, from the in-memory directory without loading profiles. Pasting a site
   address into the search box opens the site directly.
+- Make npubs, event ids, hashes, relay URLs and raw events on gateway pages
+  select in full with a single click or double-click, even when they wrap.
 - Count visits per day (kept 30 days) in addition to all-time totals. Counts are
   buffered in memory, and `HEAD` requests and known bot user agents are skipped.
 

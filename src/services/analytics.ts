@@ -19,12 +19,12 @@ let pending = new Map<
 let pendingDay = dayKey();
 
 /** UTC day key, e.g. 2026-11-25 */
-export function dayKey(time = Date.now()): string {
+function dayKey(time = Date.now()): string {
   return new Date(time).toISOString().slice(0, 10);
 }
 
 /** Returns the last `days` UTC day keys, oldest first */
-export function lastDayKeys(days: number, now = Date.now()): string[] {
+function lastDayKeys(days: number, now = Date.now()): string[] {
   const keys: string[] = [];
   for (let i = days - 1; i >= 0; i--) {
     keys.push(dayKey(now - i * 86_400_000));
@@ -46,7 +46,7 @@ export function incrementHitCount(pubkey: string, identifier: string) {
 }
 
 /** Writes buffered hits to KV */
-export async function flushHits(): Promise<void> {
+async function flushHits(): Promise<void> {
   if (pending.size === 0) {
     pendingDay = dayKey();
     return;
@@ -110,7 +110,7 @@ export async function getDailyHits(
 }
 
 /** Deletes daily buckets older than the retention window */
-export async function pruneDailyHits(now = Date.now()): Promise<number> {
+async function pruneDailyHits(now = Date.now()): Promise<number> {
   const cutoff = dayKey(now - DAILY_RETENTION_DAYS * 86_400_000);
   let removed = 0;
   const iter = cache.list({

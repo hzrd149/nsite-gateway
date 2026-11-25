@@ -9,24 +9,24 @@ import { hasMatchingIfNoneMatch } from "../helpers/http-cache.ts";
 import { css } from "../helpers/inline-css.ts";
 import { getSiteSubdomain, parseSiteAddress } from "../helpers/site-address.ts";
 import { normalizeQuery, searchDirectory } from "../helpers/search.ts";
-import { HomePage, type HomeTab } from "../pages/home.tsx";
-import { SearchPage } from "../pages/search.tsx";
+import { AuthorNotFoundPage, AuthorPage } from "../pages/gateway/author.tsx";
 import {
-  CSS_VERSION,
   type GatewayContext,
+  getGatewayContext,
   siteHref,
-} from "../pages/layout.tsx";
+} from "../pages/gateway/components.tsx";
+import { HomePage, type HomeTab } from "../pages/gateway/home.tsx";
+import { CSS_VERSION } from "../pages/gateway/layout.tsx";
+import { SearchPage } from "../pages/gateway/search.tsx";
 import {
-  AuthorNotFoundPage,
-  AuthorPage,
   getSitesPageCount,
   SitesPage,
   type SitesSort,
-} from "../pages/sites.tsx";
+} from "../pages/gateway/sites.tsx";
 import { getBlobVerifierPoolStats } from "../services/blob-verifier-pool.ts";
 import { getCachedPage, getDirectory } from "../services/directory.ts";
 import { getLastRelaySync, pool } from "../services/nostr.ts";
-import { getGatewayContext, siteStatusRoute } from "./status/site.tsx";
+import { siteStatusRoute } from "./status.tsx";
 
 const router = new Hono();
 const startedAt = Date.now();
@@ -65,7 +65,7 @@ async function cachedPage(
   render: (directory: Directory, gateway: GatewayContext) => unknown,
   options: { search?: boolean } = {},
 ): Promise<Response> {
-  const gateway = getGatewayContext(c);
+  const gateway = getGatewayContext(c.req.url);
   // Links embed the host, so cache per root host (a small, fixed set)
   const page = await getCachedPage(
     `${gateway.protocol}//${gateway.host}${key}`,
@@ -130,7 +130,7 @@ router.get("/search", async (c) => {
 
   // A pasted site address opens the site directly
   const parsed = parseSiteAddress(input);
-  const gateway = getGatewayContext(c);
+  const gateway = getGatewayContext(c.req.url);
   const href = parsed && siteHref(gateway, getSiteSubdomain(parsed));
   if (href) return c.redirect(href, 302);
 
@@ -194,7 +194,7 @@ router.get("/author/:id", async (c) => {
   if (!pubkey || !getDirectory().authors.has(pubkey)) {
     return c.html(
       html`<!DOCTYPE html>${(
-        <AuthorNotFoundPage gateway={getGatewayContext(c)} />
+        <AuthorNotFoundPage gateway={getGatewayContext(c.req.url)} />
       )}`,
       404,
       { "Cache-Control": `public, max-age=${DIRECTORY_REFRESH}` },

@@ -1,16 +1,15 @@
 import type { Child, FC } from "@hono/hono/jsx";
-import type { NsiteDeployClientReference } from "../nsite-clients.ts";
-import { formatAgeFromUnix, shortId } from "../helpers/format.ts";
-import type { ResolvedSiteAddress } from "../helpers/resolved-site.ts";
-import type { ServeRecord } from "../services/site-telemetry.ts";
 import {
-  Chip,
+  formatAgeFromUnix,
   formatCount,
   formatDateTime,
-  type GatewayContext,
-  Layout,
-  Spark,
-} from "./layout.tsx";
+  shortId,
+} from "../../helpers/format.ts";
+import type { ResolvedSiteAddress } from "../../helpers/resolved-site.ts";
+import type { NsiteDeployClientReference } from "../../nsite-clients.ts";
+import type { ServeRecord } from "../../services/site-telemetry.ts";
+import { Chip, Copy, type GatewayContext, Spark } from "./components.tsx";
+import { Layout } from "./layout.tsx";
 
 export type StatusPath = {
   path: string;
@@ -94,6 +93,18 @@ const ResultCell: FC<{ record?: ServeRecord }> = ({ record }) => {
   }
 };
 
+/** Relay URLs, each copyable on its own */
+const RelayList: FC<{ relays: string[] }> = ({ relays }) => (
+  <>
+    {relays.map((relay, i) => (
+      <>
+        {i > 0 && ", "}
+        <Copy>{relay}</Copy>
+      </>
+    ))}
+  </>
+);
+
 const ServerList: FC<{ servers?: string[]; empty: string }> = (
   { servers, empty },
 ) =>
@@ -146,7 +157,9 @@ export const SiteStatusPage: FC<{ data: SiteStatusData }> = ({ data }) => {
               )}
           </dd>
           <dt>address</dt>
-          <dd>{data.address}</dd>
+          <dd>
+            <Copy>{data.address}</Copy>
+          </dd>
           {data.parent && (
             <>
               <dt>snapshot of</dt>
@@ -165,8 +178,8 @@ export const SiteStatusPage: FC<{ data: SiteStatusData }> = ({ data }) => {
             ? <a href={`/author/${data.author.npub}`}>{data.author.label}</a>
             : data.author.label}
         </div>
-        <div class="muted" style="overflow-wrap:anywhere">
-          {data.author.npub}
+        <div class="muted">
+          <Copy>{data.author.npub}</Copy>
         </div>
       </Section>
 
@@ -189,7 +202,9 @@ export const SiteStatusPage: FC<{ data: SiteStatusData }> = ({ data }) => {
             <span class="muted">({ago(data.createdAt * 1000)})</span>
           </dd>
           <dt>event id</dt>
-          <dd>{data.eventId}</dd>
+          <dd>
+            <Copy>{data.eventId}</Copy>
+          </dd>
           <dt>files</dt>
           <dd>{data.paths.length}</dd>
           {data.client && (
@@ -218,13 +233,13 @@ export const SiteStatusPage: FC<{ data: SiteStatusData }> = ({ data }) => {
           <dt>seen on</dt>
           <dd>
             {data.seenRelays.length > 0
-              ? data.seenRelays.join(", ")
+              ? <RelayList relays={data.seenRelays} />
               : <span class="muted">unknown (loaded from cache)</span>}
           </dd>
           <dt>relay hints</dt>
           <dd>
             {data.manifestRelays.length > 0
-              ? data.manifestRelays.join(", ")
+              ? <RelayList relays={data.manifestRelays} />
               : <span class="muted">none in manifest</span>}
           </dd>
           <dt>last sync</dt>
@@ -301,7 +316,9 @@ export const SiteStatusPage: FC<{ data: SiteStatusData }> = ({ data }) => {
                       )
                       : p.path}
                   </td>
-                  <td title={p.sha256}>{shortId(p.sha256, 10)}…</td>
+                  <td>
+                    <Copy class="hash" title={p.sha256}>{p.sha256}</Copy>
+                  </td>
                   <td>
                     <ResultCell record={p.record} />
                   </td>
@@ -390,7 +407,7 @@ export const SiteStatusPage: FC<{ data: SiteStatusData }> = ({ data }) => {
           <summary>
             kind {data.kind} · id {shortId(data.eventId, 12)}…
           </summary>
-          <pre>{data.raw}</pre>
+          <pre class="copy">{data.raw}</pre>
         </details>
       </Section>
 
@@ -450,7 +467,9 @@ export const SiteUnknownPage: FC<{
                 ? (
                   <>
                     <dt>snapshot</dt>
-                    <dd>{parsed.id}</dd>
+                    <dd>
+                      <Copy>{parsed.id}</Copy>
+                    </dd>
                   </>
                 )
                 : (
@@ -458,7 +477,9 @@ export const SiteUnknownPage: FC<{
                     <dt>kind</dt>
                     <dd>{parsed.kind}</dd>
                     <dt>pubkey</dt>
-                    <dd>{parsed.pubkey}</dd>
+                    <dd>
+                      <Copy>{parsed.pubkey}</Copy>
+                    </dd>
                     <dt>identifier</dt>
                     <dd>{parsed.identifier || "(root site)"}</dd>
                   </>

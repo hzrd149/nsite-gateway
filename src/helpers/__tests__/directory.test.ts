@@ -1,5 +1,6 @@
 import { assert, assertEquals } from "jsr:@std/assert";
-import { buildDirectory, getHitsKey, sparkline } from "../directory.ts";
+import { buildDirectory, getHitsKey } from "../directory.ts";
+import { sparkline } from "../format.ts";
 import type { IndexedSite } from "../site-index.ts";
 
 function site(

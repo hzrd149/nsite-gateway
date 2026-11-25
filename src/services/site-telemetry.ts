@@ -37,7 +37,7 @@ const logs = new Map<string, { key: Deno.KvKey; log: ServeLog }>();
 const dirty = new Set<string>();
 let flushTimer: number | undefined;
 
-export function getServeLogKey(site: ResolvedSiteAddress): Deno.KvKey {
+function getServeLogKey(site: ResolvedSiteAddress): Deno.KvKey {
   return site.type === "snapshot"
     ? ["serve-log", "snapshot", site.id]
     : ["serve-log", site.pubkey, site.identifier];
@@ -86,7 +86,7 @@ export function recordServe(
 }
 
 /** Merges in-memory records into KV */
-export async function flushServeLogs(): Promise<void> {
+async function flushServeLogs(): Promise<void> {
   flushTimer = undefined;
   const ids = [...dirty];
   dirty.clear();

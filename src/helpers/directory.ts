@@ -3,6 +3,7 @@ import {
   getNsiteDeployClientReference,
   type NsiteDeployClientReference,
 } from "../nsite-clients.ts";
+import { shortenNpub } from "./format.ts";
 import { formatNsiteSubdomain } from "./nsite-host.ts";
 import type { IndexedSite } from "./site-index.ts";
 import { NAMED_SITE_MANIFEST_KIND } from "./site-manifest.ts";
@@ -98,10 +99,6 @@ export function getSiteStatusPath(pubkey: string, identifier: string): string {
       ? naddrEncode({ pubkey, identifier, kind: NAMED_SITE_MANIFEST_KIND })
       : npubEncode(pubkey)
   }`;
-}
-
-export function shortenNpub(npub: string): string {
-  return `${npub.slice(0, 10)}…${npub.slice(-4)}`;
 }
 
 function byUpdated(a: DirectorySite, b: DirectorySite): number {
@@ -222,19 +219,4 @@ export function buildDirectory(input: DirectoryInput): Directory {
       clients: clients.size,
     },
   };
-}
-
-/** Stable hue (0-359) derived from a hex pubkey for author chips */
-export function getPubkeyHue(pubkey: string): number {
-  return parseInt(pubkey.slice(0, 6), 16) % 360;
-}
-
-/** Renders daily counts as a unicode sparkline */
-export function sparkline(values: number[]): string {
-  const bars = "▁▂▃▄▅▆▇█";
-  const max = Math.max(...values, 0);
-  if (max === 0) return "▁".repeat(values.length);
-  return values
-    .map((v) => bars[Math.min(bars.length - 1, Math.round((v / max) * 7))])
-    .join("");
 }

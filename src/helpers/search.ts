@@ -5,7 +5,7 @@ export const MAX_QUERY_LENGTH = 64;
 /** Most words used from a query */
 const MAX_TOKENS = 6;
 export const MAX_SITE_RESULTS = 50;
-export const MAX_AUTHOR_RESULTS = 20;
+const MAX_AUTHOR_RESULTS = 20;
 
 export type SearchResults = {
   query: string;

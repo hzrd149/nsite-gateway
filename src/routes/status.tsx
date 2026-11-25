@@ -8,20 +8,13 @@ import {
   type NostrEvent,
   npubEncode,
 } from "applesauce-core/helpers";
-import { BLOSSOM_SERVERS } from "../../env.ts";
-import { getBlossomServers } from "../../helpers/blossom.ts";
-import {
-  getSiteStatusPath,
-  shortenNpub,
-  TRENDING_DAYS,
-} from "../../helpers/directory.ts";
-import { shortId } from "../../helpers/format.ts";
-import { formatSnapshotSubdomain } from "../../helpers/nsite-host.ts";
-import type { ResolvedSiteAddress } from "../../helpers/resolved-site.ts";
-import {
-  getSiteSubdomain,
-  parseSiteAddress,
-} from "../../helpers/site-address.ts";
+import { BLOSSOM_SERVERS } from "../env.ts";
+import { getBlossomServers } from "../helpers/blossom.ts";
+import { getSiteStatusPath, TRENDING_DAYS } from "../helpers/directory.ts";
+import { shortenNpub, shortId } from "../helpers/format.ts";
+import { formatSnapshotSubdomain } from "../helpers/nsite-host.ts";
+import type { ResolvedSiteAddress } from "../helpers/resolved-site.ts";
+import { getSiteSubdomain, parseSiteAddress } from "../helpers/site-address.ts";
 import {
   getManifestAddressKey,
   getManifestClient,
@@ -34,20 +27,20 @@ import {
   getSnapshotParentAddress,
   isSiteManifestKind,
   MANIFEST_SNAPSHOT_KIND,
-} from "../../helpers/site-manifest.ts";
-import { getNsiteDeployClientReference } from "../../nsite-clients.ts";
-import { type GatewayContext, siteHref } from "../../pages/layout.tsx";
+} from "../helpers/site-manifest.ts";
+import { getNsiteDeployClientReference } from "../nsite-clients.ts";
+import { getGatewayContext, siteHref } from "../pages/gateway/components.tsx";
 import {
   type SiteStatusData,
   SiteStatusPage,
   SiteUnknownPage,
   type StatusPath,
-} from "../../pages/site-status.tsx";
-import { getHitCount } from "../../services/analytics.ts";
-import { getBadBlobSource } from "../../services/cache.ts";
-import { getDirectory } from "../../services/directory.ts";
-import { eventStore, getLastRelaySync } from "../../services/nostr.ts";
-import { getServeLog } from "../../services/site-telemetry.ts";
+} from "../pages/gateway/status.tsx";
+import { getHitCount } from "../services/analytics.ts";
+import { getBadBlobSource } from "../services/cache.ts";
+import { getDirectory } from "../services/directory.ts";
+import { eventStore, getLastRelaySync } from "../services/nostr.ts";
+import { getServeLog } from "../services/site-telemetry.ts";
 
 /** Max failing paths checked for bad-source marks (bounds KV reads) */
 const MAX_BAD_SOURCE_PATHS = 10;
@@ -77,14 +70,9 @@ function haveMatchingPaths(a: NostrEvent, b: NostrEvent): boolean {
   return true;
 }
 
-export function getGatewayContext(c: Context): GatewayContext {
-  const url = new URL(c.req.url);
-  return { protocol: url.protocol, host: url.host };
-}
-
 export async function siteStatusRoute(c: Context): Promise<Response> {
   const address = c.req.param("address") ?? "";
-  const gateway = getGatewayContext(c);
+  const gateway = getGatewayContext(c.req.url);
   const parsed = parseSiteAddress(address);
   const manifest = parsed && getCachedManifest(parsed);
 

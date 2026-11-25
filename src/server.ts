@@ -3,7 +3,7 @@ import { cors } from "@hono/hono/cors";
 import { html } from "@hono/hono/html";
 import { NSITE_HOST, ONION_HOST, PUBLIC_DOMAIN } from "./env.ts";
 import { InvalidAddress } from "./pages/invalid-address.tsx";
-import { handleLocalRouter } from "./routes/home.tsx";
+import { handleLocalRouter } from "./routes/gateway.tsx";
 import { handleSiteRequest } from "./routes/site.tsx";
 import { resolvePubkeyFromHostname } from "./services/dns.ts";
 
