@@ -26,6 +26,12 @@ import {
   SERVERS_STALE_TIME,
 } from "../env.ts";
 import logger from "../helpers/debug.ts";
+import {
+  getMeta,
+  readProfiles,
+  setMeta,
+  upsertProfiles,
+} from "../helpers/stats-store.ts";
 import { logValue } from "../helpers/request-log.ts";
 import { formatAgeFromUnix } from "../helpers/format.ts";
 import {
@@ -45,6 +51,7 @@ import {
   NAMED_SITE_MANIFEST_KIND,
   ROOT_SITE_MANIFEST_KIND,
 } from "../helpers/site-manifest.ts";
+import { statsDb } from "./stats-db.ts";
 
 const log = logger.extend("nostr");
 
@@ -97,11 +104,36 @@ export const eventLoader = createEventLoaderForStore(eventStore, pool, {
   extraRelays: relaySet(NOSTR_RELAYS),
 });
 
-let lastRelaySync: number | undefined;
+/** Persisted across restarts so /health and status pages show the true time */
+let lastRelaySync: number | undefined = Number(
+  getMeta(statsDb, "last_relay_sync"),
+) || undefined;
+let lastRelaySyncSaved = 0;
+/** True once a relay sync finished in this process (not restored from disk) */
+let relaySyncedThisProcess = false;
 
 /** Unix ms of the last completed relay sync (or last live event) */
 export function getLastRelaySync(): number | undefined {
   return lastRelaySync;
+}
+
+/** True once relays have been synced since this process started */
+export function hasRelaySyncedThisProcess(): boolean {
+  return relaySyncedThisProcess;
+}
+
+function markRelaySync(completed = false): void {
+  lastRelaySync = Date.now();
+  if (completed) relaySyncedThisProcess = true;
+  // Live events can arrive quickly; write at most every 10 seconds
+  if (completed || lastRelaySync - lastRelaySyncSaved >= 10_000) {
+    lastRelaySyncSaved = lastRelaySync;
+    try {
+      setMeta(statsDb, "last_relay_sync", String(lastRelaySync));
+    } catch (error) {
+      log("Failed to save last relay sync", error);
+    }
+  }
 }
 
 export async function syncNsiteEvents(
@@ -121,7 +153,7 @@ export async function syncNsiteEvents(
       ? AbortSignal.any([syncAbort.signal, options.signal])
       : syncAbort.signal,
   });
-  lastRelaySync = Date.now();
+  markRelaySync(true);
   return result;
 }
 
@@ -144,11 +176,11 @@ export function subscribeNsiteEvents(
     next: (response) => {
       if (typeof response === "string") {
         // EOSE: initial sync with the relays is complete
-        lastRelaySync = Date.now();
+        markRelaySync(true);
         return;
       }
       eventStore.add(response);
-      lastRelaySync = Date.now();
+      markRelaySync();
     },
     error: (error) => {
       console.error(`Live relay sync failed: ${logValue(error)}`);
@@ -168,6 +200,34 @@ if (CACHE_RELAYS) {
 }
 
 const profilesChecked = new Map<string, Date>();
+/** Last known display names, persisted so directory pages have them at startup */
+const storedProfileNames = new Map<string, string>();
+
+// Restore profile names and recent lookup times from the stats database
+try {
+  const staleBefore = Date.now() - PROFILES_STALE_TIME * 1000;
+  for (const row of readProfiles(statsDb)) {
+    if (row.name) storedProfileNames.set(row.pubkey, row.name);
+    if (row.checkedAt > staleBefore) {
+      profilesChecked.set(row.pubkey, new Date(row.checkedAt));
+    }
+  }
+} catch (error) {
+  log("Failed to load stored profiles", error);
+}
+
+/** Display name for a profile: display_name, then name, at most 64 characters */
+export function getProfileDisplayName(
+  content: ProfileContent | undefined,
+): string | undefined {
+  const name = content?.display_name || content?.name;
+  return name ? String(name).slice(0, 64) : undefined;
+}
+
+/** Last known display name, from the event store or the stats database */
+export function getStoredProfileName(pubkey: string): string | undefined {
+  return storedProfileNames.get(pubkey);
+}
 
 /** Gets a user's profile */
 /** True if the profile was looked up within PROFILES_STALE_TIME */
@@ -206,7 +266,15 @@ export async function getUserProfile(
   );
 
   // Set the last checked time
-  profilesChecked.set(pubkey, new Date());
+  const checked = new Date();
+  profilesChecked.set(pubkey, checked);
+  const name = getProfileDisplayName(profile);
+  if (name) storedProfileNames.set(pubkey, name);
+  try {
+    upsertProfiles(statsDb, [{ pubkey, name, checkedAt: checked.getTime() }]);
+  } catch (error) {
+    log("Failed to save profile lookup", error);
+  }
 
   return profile;
 }

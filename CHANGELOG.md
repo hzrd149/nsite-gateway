@@ -12,6 +12,9 @@
   outcome), cumulative blob cache metrics and total uptime across restarts.
   `/health` adds `firstStartedAt`, `totalUptime`, `requests` and
   `blobCacheTotals`.
+- Render the home, trending, site and author pages immediately after a restart
+  from a saved directory snapshot and author names, until relays re-sync. The
+  last relay sync time and profile lookup times also survive restarts.
 - Fix lost visit counts and serve-log records on graceful shutdown: buffered
   stats are now flushed before the KV store closes.
 

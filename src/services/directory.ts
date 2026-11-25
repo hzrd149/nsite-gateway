@@ -9,7 +9,12 @@ import {
 } from "../helpers/directory.ts";
 import { LruCache } from "../helpers/lru.ts";
 import { onShutdown } from "../helpers/shutdown.ts";
-import { buildIndexedSites } from "../helpers/site-index.ts";
+import { buildIndexedSites, type IndexedSite } from "../helpers/site-index.ts";
+import {
+  mergeDirectorySites,
+  readDirectorySites,
+  replaceDirectorySites,
+} from "../helpers/stats-store.ts";
 import {
   MANIFEST_SNAPSHOT_KIND,
   NAMED_SITE_MANIFEST_KIND,
@@ -17,7 +22,15 @@ import {
 } from "../helpers/site-manifest.ts";
 import { getDailyHits } from "./analytics.ts";
 import { getCurationMutedPubkeys } from "./curation.ts";
-import { eventStore, getUserProfile, isProfileCheckFresh } from "./nostr.ts";
+import {
+  eventStore,
+  getProfileDisplayName,
+  getStoredProfileName,
+  getUserProfile,
+  hasRelaySyncedThisProcess,
+  isProfileCheckFresh,
+} from "./nostr.ts";
+import { statsDb } from "./stats-db.ts";
 
 const log = logger.extend("directory");
 
@@ -52,17 +65,25 @@ function readProfiles(pubkeys: Iterable<string>) {
   const missing: string[] = [];
   for (const pubkey of pubkeys) {
     const event = eventStore.getReplaceable(kinds.Metadata, pubkey);
-    const content = event && getProfileContent(event);
-    const name = content?.display_name || content?.name;
-    if (name) profiles.set(pubkey, { name: String(name).slice(0, 64) });
-    else missing.push(pubkey);
+    const name = getProfileDisplayName(event && getProfileContent(event));
+    if (name) profiles.set(pubkey, { name });
+    else {
+      // Fall back to the last known name, but still look the profile up
+      const stored = getStoredProfileName(pubkey);
+      if (stored) profiles.set(pubkey, { name: stored });
+      missing.push(pubkey);
+    }
   }
   return { profiles, missing };
 }
 
-async function build(): Promise<Directory> {
-  const started = performance.now();
-  const sites = buildIndexedSites(
+/**
+ * Sites from the event store. Until relays have been synced in this process,
+ * sites saved by earlier runs are included so pages render right after a
+ * restart. The result is saved for the next restart.
+ */
+function loadSites(): IndexedSite[] {
+  let sites = buildIndexedSites(
     eventStore.getTimeline({
       kinds: [
         ROOT_SITE_MANIFEST_KIND,
@@ -71,10 +92,24 @@ async function build(): Promise<Directory> {
       ],
     }),
   );
+  try {
+    if (!hasRelaySyncedThisProcess()) {
+      sites = mergeDirectorySites(sites, readDirectorySites(statsDb));
+    }
+    replaceDirectorySites(statsDb, sites);
+  } catch (error) {
+    log("Failed to read or save the directory snapshot", error);
+  }
+  return sites;
+}
+
+async function build(): Promise<Directory> {
+  const started = performance.now();
+  const sites = loadSites();
   const { profiles } = readProfiles(new Set(sites.map((s) => s.pubkey)));
   let dailyHits: Map<string, number[]> | undefined;
   try {
-    dailyHits = await getDailyHits(TRENDING_DAYS);
+    dailyHits = getDailyHits(TRENDING_DAYS);
   } catch (error) {
     log("Failed to read daily hits", error);
   }
