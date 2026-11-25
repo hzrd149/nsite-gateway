@@ -45,6 +45,11 @@
 
 ### Patch Changes
 
+- Reorganize documentation into a developer-focused README, contributing guide,
+  and dedicated configuration, deployment, caching and routing references.
+- Correct Compose setup guidance for the included Caddyfile and explicit
+  environment configuration.
+
 - Log cache metrics and service errors as compact single-line text, and attribute
   cache hits/misses/coalescing, verification strategy and streaming verification
   elapsed time to individual request paths without claiming shared hashing twice.
