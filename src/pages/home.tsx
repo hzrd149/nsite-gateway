@@ -30,9 +30,13 @@ export const SiteRows: FC<{
   <>
     {sites.map((site) => (
       <tr key={site.key}>
-        <td class="wrap">
+        <td class="name">
           <SiteName site={site} gateway={gateway} />
-          {site.description && <span class="desc">{site.description}</span>}
+          {site.description && (
+            <span class="desc" title={site.description}>
+              {site.description}
+            </span>
+          )}
         </td>
         {show.showAuthor !== false && (
           <td>

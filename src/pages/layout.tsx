@@ -123,9 +123,11 @@ export const SiteName: FC<{ site: DirectorySite; gateway: GatewayContext }> = (
   { site, gateway },
 ) => {
   const href = siteHref(gateway, site.subdomain);
-  return href
-    ? <a href={href}>{site.label}/</a>
-    : <a href={site.statusPath}>{site.label}/</a>;
+  return (
+    <a href={href ?? site.statusPath} title={site.label}>
+      {site.label}/
+    </a>
+  );
 };
 
 /** Absolute UTC time; cached pages must not contain relative ages */

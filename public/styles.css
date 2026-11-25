@@ -36,7 +36,6 @@ body {
   font: 14px/1.55 var(--mono);
 }
 main {
-  max-width: 1100px;
   margin: 0 auto;
   padding: 20px max(16px, env(safe-area-inset-right)) 48px max(16px,
     env(safe-area-inset-left));
@@ -139,15 +138,20 @@ th a.cur {
   color: var(--fg);
   font-weight: 700;
 }
-td.wrap {
-  white-space: normal;
-  min-width: 18ch;
+/* The name column takes the remaining width; name and description are
+   clipped to one line each so long text never changes row height. */
+td.name {
+  width: 100%;
+  max-width: 0;
+  min-width: 28ch;
 }
-td .desc {
+td.name > * {
   display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+td.name .desc {
   color: var(--muted);
-  white-space: normal;
-  max-width: 60ch;
 }
 
 /* address form */
