@@ -21,6 +21,11 @@
   `/status/` and `/search`.
 - Link the gateway source and npanel (for hosting specific nsites) from the
   homepage sidebar.
+- Show the author's name, npub and hex public key at the top of author pages.
+- Load author profiles for the site list reliably: lookups now wait for the
+  profile instead of returning the loader's placeholder, skip authors checked
+  recently, and continue in batches after startup and each relay sync until
+  every author has been looked up once.
 - Search sites by title, identifier and description, and authors by name or npub
   prefix, from the in-memory directory without loading profiles. Pasting a site
   address into the search box opens the site directly.

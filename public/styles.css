@@ -392,3 +392,30 @@ section h3 {
 pre.copy {
   white-space: pre-wrap;
 }
+
+/* author page header */
+.author-head {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  margin-top: 18px;
+}
+.author-head h1 {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.author-head p {
+  margin: 0;
+}
+.kv {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 2px 3ch;
+  margin: 14px 0 18px;
+}
+.kv dt {
+  color: var(--muted);
+}
+.kv dd {
+  margin: 0;
+}

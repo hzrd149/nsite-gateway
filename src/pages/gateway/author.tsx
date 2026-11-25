@@ -1,7 +1,13 @@
 import type { FC } from "@hono/hono/jsx";
 import type { Directory } from "../../helpers/directory.ts";
 import { pluralize } from "../../helpers/format.ts";
-import { Copy, type GatewayContext, SiteTable, TopBar } from "./components.tsx";
+import {
+  Chip,
+  Copy,
+  type GatewayContext,
+  SiteTable,
+  TopBar,
+} from "./components.tsx";
 import { Layout } from "./layout.tsx";
 
 export const AuthorPage: FC<{
@@ -16,19 +22,27 @@ export const AuthorPage: FC<{
       title={`${author.label} · ${gateway.host}`}
       description={`${pluralize(sites.length, "website")} by ${author.label}.`}
     >
-      <TopBar
-        gateway={gateway}
-        chip={{ pubkey, label: author.label }}
-        subtitle={
-          <>
-            {author.label} · {pluralize(sites.length, "site")} ·{" "}
+      <TopBar gateway={gateway} subtitle="author" />
+      <header class="author-head">
+        <Chip pubkey={pubkey} label={author.label} large />
+        <div>
+          <h1>{author.name ?? "Unnamed author"}</h1>
+          <p class="muted">
+            {pluralize(sites.length, "site")} ·{" "}
             {pluralize(author.snapshotCount, "snapshot")}
-          </>
-        }
-      />
-      <p class="muted" style="margin-top:12px">
-        <Copy>{author.npub}</Copy>
-      </p>
+          </p>
+        </div>
+      </header>
+      <dl class="kv">
+        <dt>npub</dt>
+        <dd>
+          <Copy>{author.npub}</Copy>
+        </dd>
+        <dt>pubkey</dt>
+        <dd>
+          <Copy>{pubkey}</Copy>
+        </dd>
+      </dl>
       <SiteTable
         sites={sites}
         directory={directory}

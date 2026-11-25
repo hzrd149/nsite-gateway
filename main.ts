@@ -18,7 +18,7 @@ import { startAnalyticsService } from "./src/services/analytics.ts";
 import { verifiedBlobCache } from "./src/services/blossom.ts";
 import { startCurationService } from "./src/services/curation.ts";
 import {
-  rebuildDirectory,
+  refreshDirectory,
   startDirectoryService,
 } from "./src/services/directory.ts";
 import { subscribeNsiteEvents, syncNsiteEvents } from "./src/services/nostr.ts";
@@ -109,8 +109,9 @@ if (NOSTR_RELAYS && NOSTR_RELAYS.length > 0) {
           );
         }
       }
-      // Show newly synced sites without waiting for the next refresh
-      void rebuildDirectory();
+      // Show newly synced sites and load their authors' profiles now rather
+      // than waiting for the next scheduled refresh
+      void refreshDirectory();
     } catch (error) {
       if (error instanceof DOMException && error.name === "TimeoutError") {
         console.warn(

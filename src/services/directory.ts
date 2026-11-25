@@ -17,13 +17,14 @@ import {
 } from "../helpers/site-manifest.ts";
 import { getDailyHits } from "./analytics.ts";
 import { getCurationMutedPubkeys } from "./curation.ts";
-import { eventStore, getUserProfile } from "./nostr.ts";
+import { eventStore, getUserProfile, isProfileCheckFresh } from "./nostr.ts";
 
 const log = logger.extend("directory");
 
-/** Max profiles fetched from relays per rebuild, so startup is gentle */
-const PROFILE_WARM_LIMIT = 200;
-const PROFILE_WARM_CONCURRENCY = 4;
+/** Max profiles looked up per refresh, so startup stays gentle on relays */
+const PROFILE_WARM_LIMIT = 500;
+/** Parallel lookups; the event loader batches them into shared requests */
+const PROFILE_WARM_CONCURRENCY = 25;
 
 let version = 0;
 let current: Directory = buildDirectory({
@@ -102,11 +103,16 @@ export function rebuildDirectory(): Promise<Directory> {
   return building;
 }
 
-/** Fetches missing author profiles in the background; true if any arrived */
-async function warmProfiles(): Promise<boolean> {
+/** Looks up one batch of missing author profiles in the background */
+async function warmProfiles(): Promise<{ attempted: number; found: number }> {
   const { missing } = readProfiles(current.authors.keys());
-  const queue = missing.slice(0, PROFILE_WARM_LIMIT);
-  if (queue.length === 0) return false;
+  // Skip pubkeys looked up recently, so authors without a profile anywhere
+  // don't hold the front of the queue and block everyone behind them
+  const queue = missing
+    .filter((pubkey) => !isProfileCheckFresh(pubkey))
+    .slice(0, PROFILE_WARM_LIMIT);
+  if (queue.length === 0) return { attempted: 0, found: 0 };
+  const attempted = queue.length;
 
   let found = 0;
   const worker = async () => {
@@ -121,16 +127,43 @@ async function warmProfiles(): Promise<boolean> {
   await Promise.all(
     Array.from({ length: PROFILE_WARM_CONCURRENCY }, () => worker()),
   );
-  log(`Warmed ${found} of ${missing.length} missing profiles`);
-  return found > 0;
+  log(
+    `Warmed ${found} of ${attempted} profiles looked up (${
+      missing.length - found
+    } authors still without a profile)`,
+  );
+  return { attempted, found };
 }
 
-async function refresh() {
+let refreshing = false;
+let refreshQueued = false;
+
+/** Rebuilds the directory, then looks up missing author profiles */
+export async function refreshDirectory(): Promise<void> {
+  // A slow profile warm-up must not overlap another refresh; run once more
+  // afterwards so sites synced in the meantime still get their profiles
+  if (refreshing) {
+    refreshQueued = true;
+    return;
+  }
+  refreshing = true;
   try {
     await rebuildDirectory();
-    if (await warmProfiles()) await rebuildDirectory();
+    // Keep warming in batches until every missing profile has been looked up
+    // once; looked-up pubkeys are skipped for PROFILES_STALE_TIME, so this ends
+    for (;;) {
+      const { attempted, found } = await warmProfiles();
+      if (found > 0) await rebuildDirectory();
+      if (attempted === 0) break;
+    }
   } catch (error) {
     log("Directory refresh failed", error);
+  } finally {
+    refreshing = false;
+    if (refreshQueued) {
+      refreshQueued = false;
+      void refreshDirectory();
+    }
   }
 }
 
@@ -139,8 +172,8 @@ let timer: ReturnType<typeof setInterval> | undefined;
 /** Starts periodic directory rebuilds */
 export function startDirectoryService(): void {
   if (timer !== undefined) return;
-  void refresh();
-  timer = setInterval(() => void refresh(), DIRECTORY_REFRESH * 1000);
+  void refreshDirectory();
+  timer = setInterval(() => void refreshDirectory(), DIRECTORY_REFRESH * 1000);
 
   // Apply curator mute list changes immediately
   const curation = CURATION_PUBKEY

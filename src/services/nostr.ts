@@ -15,7 +15,7 @@ import {
 import type { NostrEvent } from "applesauce-core/helpers";
 import { createEventLoaderForStore } from "applesauce-loaders/loaders";
 import { RelayPool } from "applesauce-relay";
-import { type Subscription, takeUntil, timer } from "rxjs";
+import { filter, type Subscription, takeUntil, timer } from "rxjs";
 import {
   CACHE_RELAYS,
   LOOKUP_RELAYS,
@@ -170,13 +170,18 @@ if (CACHE_RELAYS) {
 const profilesChecked = new Map<string, Date>();
 
 /** Gets a user's profile */
+/** True if the profile was looked up within PROFILES_STALE_TIME */
+export function isProfileCheckFresh(pubkey: string): boolean {
+  const checked = profilesChecked.get(pubkey);
+  return !!checked &&
+    checked.getTime() > Date.now() - PROFILES_STALE_TIME * 1000;
+}
+
 export async function getUserProfile(
   pubkey: string,
   timeout = 5_000,
 ): Promise<ProfileContent | undefined> {
-  const checked = profilesChecked.get(pubkey);
-  const fresh = checked &&
-    checked.getTime() > Date.now() - PROFILES_STALE_TIME * 1000;
+  const fresh = isProfileCheckFresh(pubkey);
 
   // check in-memory cache
   const cached = eventStore.getReplaceable(kinds.Metadata, pubkey);
@@ -188,8 +193,13 @@ export async function getUserProfile(
 
   // Otherwise, fetch the latest profile
   const user = castUser(pubkey, eventStore);
+  // The stream emits undefined while the loader is still fetching, so wait for
+  // the first real profile (or the timeout) instead of taking that placeholder
   const profile = await firstValueFrom(
-    user.profile$.metadata.pipe(takeUntil(timer(timeout))),
+    user.profile$.metadata.pipe(
+      filter((metadata) => metadata !== undefined),
+      takeUntil(timer(timeout)),
+    ),
     {
       defaultValue: undefined,
     },
