@@ -34,8 +34,9 @@ the restrictions described [below](#public-network-only-mode-ipv4).
 The project enables Deno's `no-legacy-abort` behavior: request signals cancel on
 disconnect, not successful delivery. Direct launches outside the project need
 `--unstable-no-legacy-abort`. Readers release pins on EOF, stream cancellation,
-errors or idle timeout. In Deno 2.9.8, mid-stream disconnects trigger body
-cancellation; pre-response disconnects abort the request signal. See
+errors or idle timeout. In Deno 2.9.8, mid-stream disconnects can trigger body
+cancellation or request-signal abort; pre-response disconnects abort the request
+signal. See
 [Deno's migration guidance](https://docs.deno.com/go/unstable-no-legacy-abort).
 
 ## Published JSR package

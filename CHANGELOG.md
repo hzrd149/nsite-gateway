@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Patch Changes
+
+- Fix flaky HTTP disconnect integration tests by accepting both body
+  cancellation and request abort, while still verifying cache reader cleanup.
+
 ## 3.7.0
 
 ### Minor Changes

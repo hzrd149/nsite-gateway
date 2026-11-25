@@ -54,7 +54,8 @@ Deno.test("corrected Deno abort: successful delivery releases readers, disconnec
     entries: 4,
     readers: 4,
     fillTimeout: 2000,
-    stallTimeout: 4000,
+    // Idle cleanup must not satisfy the five-second disconnect assertion.
+    stallTimeout: 10000,
   });
   let resolveSuccess!: () => void;
   const success = new Promise<void>((resolve) => resolveSuccess = resolve);
@@ -95,9 +96,13 @@ Deno.test("corrected Deno abort: successful delivery releases readers, disconnec
         sources: () => Promise.resolve([]),
       }))!;
       if (small) return response;
-      // Deno 2.9.8 cancels the response body on a mid-stream disconnect.
-      // Observe cancellation without depending on post-response signal behavior.
+      // A disconnect can cancel the response body, or abort the request while a
+      // pull is pending. In the latter case the cache errors the reader and the
+      // wrapper becomes errored, so its cancel() callback will not run.
       const reader = response.body!.getReader();
+      void reader.closed.catch(() => {
+        if (req.signal.aborted) resolveDisconnected();
+      });
       return new Response(
         new ReadableStream({
           async pull(controller) {
@@ -132,7 +137,7 @@ Deno.test("corrected Deno abort: successful delivery releases readers, disconnec
     assertEquals(cache.metrics.readers, 1);
     socket.close();
     socket = undefined;
-    await within(disconnected, "large response is cancelled");
+    await within(disconnected, "large response is cancelled or aborted");
     assertEquals(cache.metrics.readers, 0);
     socket = await Deno.connect({
       hostname: "127.0.0.1",
