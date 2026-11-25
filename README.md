@@ -273,12 +273,17 @@ directory snapshot that is rebuilt every `DIRECTORY_REFRESH` seconds, so
 requests never wait on relays or Blossom servers. They are served with an `ETag`
 and `Cache-Control: public, max-age=<DIRECTORY_REFRESH>`.
 
-- **`GET /`**: explains nsites, offers an address box, and lists recently
-  updated or trending (`?tab=trending`) sites with 7-day visit sparklines and
-  featured authors.
-- **`GET /open?a=<address>`**: redirects an `npub`, `naddr`, `nevent`,
-  `nprofile`, hex pubkey or nsite URL to the site's subdomain. NIP-05 names are
-  not supported.
+- **`GET /`**: explains nsites, offers a search box, and lists recently updated
+  or trending (`?tab=trending`) sites with 7-day visit sparklines and featured
+  authors.
+- **`GET /search?q=<query>`**: searches the in-memory directory by site title,
+  identifier, description and author name, or by npub prefix for authors. Author
+  names come only from profiles the gateway already has; searching never loads
+  profiles or contacts relays. Queries are truncated to 64 characters and 6
+  words, results are capped (50 sites, 20 authors), and result pages are cached
+  per query in their own bounded cache. A pasted `npub`, `naddr`, `nevent`,
+  `nprofile`, hex pubkey or nsite URL redirects straight to the site's
+  subdomain. NIP-05 names are not supported.
 - **`GET /sites?sort=updated|trending|name&page=N`**: paginated table of every
   known site.
 - **`GET /author/:npub`**: sites published by one author.
@@ -292,7 +297,7 @@ and `Cache-Control: public, max-age=<DIRECTORY_REFRESH>`.
 - **`GET /status`**: redirects to `/sites`.
 - **`GET /health`**: JSON with version, uptime, site counts, relay connections,
   last relay sync and verifier pool stats.
-- **`GET /robots.txt`**: disallows `/status/` and `/open` unless
+- **`GET /robots.txt`**: disallows `/status/` and `/search` unless
   `public/robots.txt` exists.
 
 Visits are counted for `.html` page views only. `HEAD` requests and known bot or

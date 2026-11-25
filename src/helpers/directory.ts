@@ -39,6 +39,10 @@ export type DirectorySite = {
   recentHits: number;
   /** Daily visits over the trending window, oldest first */
   dailyHits: number[];
+  /** Lowercased title, identifier and label for search */
+  searchName: string;
+  /** Lowercased description and author name for search */
+  searchExtra: string;
 };
 
 export type DirectoryAuthor = {
@@ -50,6 +54,8 @@ export type DirectoryAuthor = {
   snapshotCount: number;
   recentHits: number;
   latestUpdate: number;
+  /** Lowercased name for search */
+  searchName: string;
 };
 
 export type DirectoryStats = {
@@ -147,7 +153,13 @@ export function buildDirectory(input: DirectoryInput): Directory {
       authorName: profile?.name,
       recentHits: dailyHits.reduce((sum, n) => sum + n, 0),
       dailyHits,
+      searchName: "",
+      searchExtra: "",
     };
+    entry.searchName = [site.title, site.identifier, entry.label]
+      .filter(Boolean).join(" ").toLowerCase();
+    entry.searchExtra = [site.description, profile?.name]
+      .filter(Boolean).join(" ").toLowerCase().slice(0, 500);
     sites.set(entry.key, entry);
 
     let author = authors.get(site.pubkey);
@@ -161,6 +173,7 @@ export function buildDirectory(input: DirectoryInput): Directory {
         snapshotCount: 0,
         recentHits: 0,
         latestUpdate: 0,
+        searchName: (profile?.name ?? "").toLowerCase(),
       };
       authors.set(site.pubkey, author);
     }

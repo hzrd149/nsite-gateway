@@ -84,9 +84,7 @@ export const HomePage: FC<{
   directory: Directory;
   gateway: GatewayContext;
   tab: HomeTab;
-  error?: string;
-  address?: string;
-}> = ({ directory, gateway, tab, error, address }) => {
+}> = ({ directory, gateway, tab }) => {
   const list = tab === "trending" ? directory.trending : directory.recent;
   const rows = list.slice(0, HOME_ROWS);
   const { stats } = directory;
@@ -101,9 +99,7 @@ export const HomePage: FC<{
       <TopBar
         gateway={gateway}
         subtitle="Index of nostr websites"
-        address={address}
       />
-      {error && <p class="error" role="alert">{error}</p>}
       <div class="cols">
         <div style="min-width:0">
           <nav class="tabs" aria-label="Site lists">
@@ -168,6 +164,15 @@ export const HomePage: FC<{
             <li>
               <a href="https://nsyte.run/">nsyte</a>
               <span class="n">command line</span>
+            </li>
+          </ul>
+          <h3>RUN YOUR OWN GATEWAY</h3>
+          <ul>
+            <li>
+              <a href="https://github.com/hzrd149/nsite-gateway">
+                nsite-gateway
+              </a>
+              <span class="n">source</span>
             </li>
           </ul>
         </aside>

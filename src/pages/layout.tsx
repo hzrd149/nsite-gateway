@@ -89,13 +89,15 @@ export const Spark: FC<{ values: number[] }> = ({ values }) => (
 );
 
 export const AddressForm: FC<{ value?: string }> = ({ value }) => (
-  <form class="open" action="/open" method="get" role="search">
+  <form class="open" action="/search" method="get" role="search">
     <input
-      id="open-address"
-      name="a"
+      id="search"
+      name="q"
+      type="search"
       value={value}
-      aria-label="Site address"
-      placeholder="open npub / naddr / site url"
+      maxlength={200}
+      aria-label="Search sites and authors, or open an address"
+      placeholder="search sites & authors, or paste npub / naddr"
       autocomplete="off"
       spellcheck={false}
       required

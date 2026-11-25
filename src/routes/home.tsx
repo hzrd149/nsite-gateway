@@ -8,7 +8,9 @@ import type { Directory } from "../helpers/directory.ts";
 import { hasMatchingIfNoneMatch } from "../helpers/http-cache.ts";
 import { css } from "../helpers/inline-css.ts";
 import { getSiteSubdomain, parseSiteAddress } from "../helpers/site-address.ts";
+import { normalizeQuery, searchDirectory } from "../helpers/search.ts";
 import { HomePage, type HomeTab } from "../pages/home.tsx";
+import { SearchPage } from "../pages/search.tsx";
 import {
   CSS_VERSION,
   type GatewayContext,
@@ -47,7 +49,7 @@ const hasPublicRobots = await isPublicFile("robots.txt");
 
 const DEFAULT_ROBOTS = `User-agent: *
 Disallow: /status/
-Disallow: /open
+Disallow: /search
 Allow: /
 `;
 
@@ -61,6 +63,7 @@ async function cachedPage(
   c: Context,
   key: string,
   render: (directory: Directory, gateway: GatewayContext) => unknown,
+  options: { search?: boolean } = {},
 ): Promise<Response> {
   const gateway = getGatewayContext(c);
   // Links embed the host, so cache per root host (a small, fixed set)
@@ -70,11 +73,15 @@ async function cachedPage(
       String(
         await html`<!DOCTYPE html>${render(directory, gateway)}`,
       ),
+    options.search ? "search" : "pages",
   );
-  const headers = {
-    "Cache-Control": `public, max-age=${DIRECTORY_REFRESH}`,
+  const headers: Record<string, string> = {
+    "Cache-Control": `public, max-age=${
+      options.search ? Math.min(60, DIRECTORY_REFRESH) : DIRECTORY_REFRESH
+    }`,
     ETag: page.etag,
   };
+  if (options.search) headers["X-Robots-Tag"] = "noindex";
   if (hasMatchingIfNoneMatch(c.req.raw.headers, page.etag)) {
     return new Response(null, { status: 304, headers });
   }
@@ -117,30 +124,32 @@ router.get("/", async (c, next) => {
   );
 });
 
-router.get("/open", (c) => {
-  const input = (c.req.query("a") ?? "").trim();
+router.get("/search", async (c) => {
+  const input = (c.req.query("q") ?? "").trim().slice(0, 200);
+  if (!input) return c.redirect("/", 302);
+
+  // A pasted site address opens the site directly
   const parsed = parseSiteAddress(input);
   const gateway = getGatewayContext(c);
   const href = parsed && siteHref(gateway, getSiteSubdomain(parsed));
   if (href) return c.redirect(href, 302);
 
-  const error = !input
-    ? "Enter an npub, naddr, snapshot nevent or nsite URL."
-    : parsed
+  const query = normalizeQuery(input);
+  const notice = parsed
     ? "This named site's identifier can't be used as a subdomain, so it can't be opened here."
-    : "That isn't a site address this gateway understands. Use an npub, naddr, nevent, hex pubkey or nsite URL. NIP-05 names are not supported.";
-  return c.html(
-    html`<!DOCTYPE html>${(
-      <HomePage
-        directory={getDirectory()}
+    : undefined;
+  return await cachedPage(
+    c,
+    `/search?q=${query}${notice ? "&notice" : ""}`,
+    (directory, gateway) => (
+      <SearchPage
+        directory={directory}
         gateway={gateway}
-        tab="recent"
-        error={error}
-        address={input.slice(0, 200)}
+        results={searchDirectory(directory, query)}
+        notice={notice}
       />
-    )}`,
-    400,
-    { "Cache-Control": "no-store", "X-Robots-Tag": "noindex" },
+    ),
+    { search: true },
   );
 });
 

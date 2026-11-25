@@ -87,6 +87,7 @@ async function build(): Promise<Directory> {
     profiles,
   });
   pages.clear();
+  searchPages.clear();
   log(
     `Built directory v${current.version}: ${current.stats.sites} sites, ${current.stats.authors} authors in ${
       Math.round(performance.now() - started)
@@ -159,12 +160,20 @@ export function startDirectoryService(): void {
  * Returns a cached rendering of a page for the current directory version,
  * rendering it on a miss. Rendering must be synchronous and side-effect free.
  */
+/** Search result pages get their own cache so queries can't evict pages */
+const searchPages = new LruCache<
+  string,
+  { version: number; body: string; etag: string }
+>(500);
+
 export async function getCachedPage(
   key: string,
   render: (directory: Directory) => string | Promise<string>,
+  cache: "pages" | "search" = "pages",
 ): Promise<{ body: string; etag: string }> {
   const directory = current;
-  const hit = pages.get(key);
+  const store = cache === "search" ? searchPages : pages;
+  const hit = store.get(key);
   if (hit && hit.version === directory.version) return hit;
 
   const body = await render(directory);
@@ -177,6 +186,6 @@ export async function getCachedPage(
       b.toString(16).padStart(2, "0")).join("")
   }"`;
   const entry = { version: directory.version, body, etag };
-  pages.set(key, entry);
+  store.set(key, entry);
   return entry;
 }
