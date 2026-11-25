@@ -511,6 +511,11 @@ export class VerifiedBlobCache {
     }
   }
 
+  /** True when verified bytes for the hash are already on local disk */
+  has(hash: string): boolean {
+    return this.entries.has(hash);
+  }
+
   async response(
     hash: string,
     request: BlobRequest,

@@ -2,12 +2,11 @@ import type { Context } from "@hono/hono";
 import { html } from "@hono/hono/html";
 import { contentType } from "@std/media-types";
 import { extname } from "@std/path/posix";
-import { mergeBlossomServers } from "applesauce-common/helpers";
 import {
   BLOSSOM_PROXY,
-  BLOSSOM_SERVERS,
   ONION_HOST,
   SITE_CACHE_MAX_AGE,
+  SITE_LOADING_PAGE,
 } from "../env.ts";
 import { createStrongEtag } from "../helpers/http-cache.ts";
 import {
@@ -18,16 +17,117 @@ import type { ResolvedSiteAddress } from "../helpers/resolved-site.ts";
 import type { RequestLogEnv } from "../helpers/request-log.ts";
 import {
   getManifestPaths,
-  getManifestServers,
   resolveManifestPath,
 } from "../helpers/site-manifest.ts";
+import {
+  LOADING_POLL_HEADER,
+  wantsLoadingPage,
+  type WarmupOutcome,
+  withinGrace,
+} from "../helpers/site-loading.ts";
 import { PathNotFound } from "../pages/path-not-found.tsx";
+import { SiteLoading } from "../pages/site-loading.tsx";
 import { SiteNotFound } from "../pages/site-not-found.tsx";
 import { isBotUserAgent } from "../helpers/bots.ts";
 import { incrementHitCount } from "../services/analytics.ts";
-import { streamBlob } from "../services/blossom.ts";
+import { streamBlob, verifiedBlobCache } from "../services/blossom.ts";
 import { getManifest, getUserBlossomServers } from "../services/nostr.ts";
 import { recordServe } from "../services/site-telemetry.ts";
+import {
+  getSiteBlobServers,
+  getSiteWarmup,
+  getSiteWarmupFailure,
+  isSiteFileReady,
+  siteWarmupKey,
+  warmSiteFile,
+} from "../services/site-warmup.ts";
+
+/** How long a cold navigation waits before falling back to the loading page */
+const LOADING_GRACE_MS = 400;
+
+/** Headers that keep the loading page out of every cache and search index */
+const LOADING_HEADERS = {
+  "Retry-After": "2",
+  "Cache-Control": "no-store",
+  "X-Robots-Tag": "noindex",
+};
+
+function siteNotFound(c: Context<RequestLogEnv>, hostname: string) {
+  return c.html(
+    html`
+      <!DOCTYPE html>${<SiteNotFound hostname={hostname} />}
+    `,
+    404,
+  );
+}
+
+function badGateway() {
+  return new Response(
+    "Bad Gateway: Unable to retrieve the requested file from storage servers.",
+    { status: 502 },
+  );
+}
+
+/** Renders a warm-up failure the browser was sent back to after reloading */
+async function warmupFailure(
+  c: Context<RequestLogEnv>,
+  hostname: string,
+  outcome: WarmupOutcome,
+): Promise<Response | undefined> {
+  if (outcome === "no-manifest") return await siteNotFound(c, hostname);
+  if (outcome === "unavailable") return badGateway();
+  return undefined;
+}
+
+/**
+ * Answers browser navigations to cold sites with a temporary loading page
+ * (503 + Retry-After, never cached) while the manifest and file are fetched
+ * in the background. Returns undefined when the request should be served
+ * normally.
+ */
+async function handleLoadingPage(
+  c: Context<RequestLogEnv>,
+  site: ResolvedSiteAddress,
+  url: URL,
+): Promise<Response | undefined> {
+  const request = c.req.raw;
+  if (request.method !== "GET") return undefined;
+  const key = siteWarmupKey(site, url.pathname);
+
+  // Progress polls from the loading page; never start work from a poll.
+  if (request.headers.has(LOADING_POLL_HEADER)) {
+    const job = getSiteWarmup(key);
+    const body = job && job.outcome === undefined
+      ? { stage: job.stage }
+      : { done: true };
+    return c.json(body, 200, { "Cache-Control": "no-store" });
+  }
+
+  if (!wantsLoadingPage(request)) return undefined;
+
+  // A reload after a failed warm-up shows the real error instead of looping.
+  const failure = getSiteWarmupFailure(key);
+  if (failure) return await warmupFailure(c, url.hostname, failure);
+
+  if (isSiteFileReady(site, url.pathname)) return undefined;
+
+  const job = warmSiteFile(site, url.pathname);
+  const outcome = await withinGrace(job.done, LOADING_GRACE_MS);
+  if (outcome) return await warmupFailure(c, url.hostname, outcome);
+
+  return await c.html(
+    html`
+      <!DOCTYPE html>${(
+        <SiteLoading
+          hostname={url.hostname}
+          stage={job.stage}
+        />
+      )}
+    `,
+    503,
+    LOADING_HEADERS,
+  );
+}
 
 function appendOnionLocation(
   headers: Headers,
@@ -62,20 +162,13 @@ export async function handleSiteRequest(
   const pubkey = site.type === "replaceable" ? site.pubkey : undefined;
   const identifier = site.type === "replaceable" ? site.identifier : "";
 
-  const manifest = await getManifest(site, 10_000);
-
-  const userServers = manifest
-    ? await getUserBlossomServers(manifest.pubkey, 10_000)
-    : undefined;
-
-  if (!manifest) {
-    return c.html(
-      html`
-        <!DOCTYPE html>${<SiteNotFound hostname={url.hostname} />}
-      `,
-      404,
-    );
+  if (SITE_LOADING_PAGE) {
+    const loading = await handleLoadingPage(c, site, url);
+    if (loading) return loading;
   }
+
+  const manifest = await getManifest(site, 10_000);
+  if (!manifest) return siteNotFound(c, url.hostname);
 
   const match = resolveManifestPath(manifest, url.pathname);
   if (!match) {
@@ -106,12 +199,11 @@ export async function handleSiteRequest(
   // Conditional responses are evaluated only after local bytes are verified.
   const etag = createStrongEtag(match.sha256);
 
-  const manifestServers = getManifestServers(manifest);
-  const servers = mergeBlossomServers(
-    manifestServers,
-    userServers,
-    BLOSSOM_SERVERS,
-  );
+  // The author's server list is only needed to fill a blob not yet on disk.
+  const userServers = verifiedBlobCache.has(match.sha256)
+    ? undefined
+    : await getUserBlossomServers(manifest.pubkey, 10_000);
+  const servers = getSiteBlobServers(manifest, userServers);
 
   // Create request headers for the blob request
   const requestHeaders = new Headers();
@@ -140,14 +232,7 @@ export async function handleSiteRequest(
       result: "unavailable",
     });
   }
-  if (!upstream) {
-    return new Response(
-      "Bad Gateway: Unable to retrieve the requested file from storage servers.",
-      {
-        status: 502,
-      },
-    );
-  }
+  if (!upstream) return badGateway();
   if (upstream.status >= 500) return upstream;
 
   // Create response headers

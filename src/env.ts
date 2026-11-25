@@ -92,6 +92,10 @@ if (
   );
 }
 
+/** Show a temporary loading page to browsers while a cold site is fetched */
+export const SITE_LOADING_PAGE =
+  Deno.env.get("SITE_LOADING_PAGE")?.trim().toLowerCase() !== "false";
+
 export const BLOB_SERVER_TTL = Deno.env.get("BLOB_SERVER_TTL")
   ? parseInt(Deno.env.get("BLOB_SERVER_TTL")!, 10)
   : 7 * 24 * 60 * 60;

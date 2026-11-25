@@ -277,16 +277,29 @@ export async function getUserBlossomServers(pubkey: string, timeout = 5_000) {
   return servers?.map((server) => server.toString());
 }
 
+/** Returns a site manifest already in the event store, without network I/O */
+export function getCachedManifest(
+  address: ResolvedSiteAddress,
+): NostrEvent | undefined {
+  if (address.type === "snapshot") {
+    return eventStore
+      .getTimeline({ kinds: [MANIFEST_SNAPSHOT_KIND] })
+      .find((event) => event.id === address.id);
+  }
+
+  return eventStore.getReplaceable(
+    address.kind,
+    address.pubkey,
+    address.identifier,
+  );
+}
+
 /** Loads a replaceable site manifest event from the store */
 export async function getReplaceableManifest(
   address: ReplaceableSiteAddress,
   timeout = 5_000,
 ) {
-  const manifest = eventStore.getReplaceable(
-    address.kind,
-    address.pubkey,
-    address.identifier,
-  );
+  const manifest = getCachedManifest(address);
   if (manifest) return manifest;
 
   log(`Loading manifest ${getReplaceableAddressFromPointer(address)}`);
@@ -316,9 +329,7 @@ export async function getSnapshotManifest(
   snapshot: SnapshotSiteAddress,
   timeout = 5_000,
 ) {
-  const cached = eventStore
-    .getTimeline({ kinds: [MANIFEST_SNAPSHOT_KIND] })
-    .find((event) => event.id === snapshot.id);
+  const cached = getCachedManifest(snapshot);
   if (cached) return cached;
 
   const relays = relaySet(CACHE_RELAYS, LOOKUP_RELAYS, NOSTR_RELAYS);
