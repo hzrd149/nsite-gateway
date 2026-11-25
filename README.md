@@ -51,6 +51,7 @@ cp .env.example .env
 | `ONION_HOST`             | _(none)_                                   | If set to a `.onion` URL, every nsite response includes an `Onion-Location` header pointing to the Tor mirror                                                                                                                                                                                                                                                |
 | `CURATION_USER`          | _(none)_                                   | Hex pubkey of a curator whose [NIP-51 mute list](https://github.com/nostr-protocol/nips/blob/master/51.md) (kind `10000`) is loaded into the in-memory event store at startup and refreshed on a timer. Sites whose author pubkey appears in **public** `p` tags on that list are omitted from the home page (encrypted mutes in `content` are not applied). |
 | `CURATION_REFRESH`       | `600` (10 min)                             | How often to re-fetch the curator mute list, in seconds                                                                                                                                                                                                                                                                                                      |
+| `DIRECTORY_REFRESH`      | `600` (10 min)                             | How often the homepage, site list and author pages are rebuilt, in seconds (minimum `10`)                                                                                                                                                                                                                                                                    |
 
 ## Running with Deno
 
@@ -180,9 +181,10 @@ curl --resolve 'SITE_HOSTNAME:3000:127.0.0.1' \
 Use **Deno 2.9.8 or newer**, preferably the latest patched stable release. This
 is the minimum recommended version for this gateway's native network-deny
 configuration. Deno 2.8.1 fixed the original `fetch()` resolved-IP permission
-bypass ([advisory](https://github.com/denoland/deno/security/advisories/GHSA-cpgj-f7g3-2pp2));
-our policy is tested on 2.9.8. Upgrading alone does not block private destinations:
-network-deny rules must also be enabled.
+bypass
+([advisory](https://github.com/denoland/deno/security/advisories/GHSA-cpgj-f7g3-2pp2));
+our policy is tested on 2.9.8. Upgrading alone does not block private
+destinations: network-deny rules must also be enabled.
 
 ```sh
 deno task start
@@ -276,10 +278,10 @@ or accesses the gateway's caches.
 
 ### Public-network-only mode (IPv4 deployments)
 
-**Prerequisite: disable IPv6 egress or block it at the network boundary.**
-Deno 2.9.8 accepts IPv4 subnet rules but rejects IPv6 subnet syntax in its CLI.
-The profile below denies IPv6 loopback explicitly, but cannot block all private
-IPv6 ranges. It is not sufficient for dual-stack hosts without external IPv6
+**Prerequisite: disable IPv6 egress or block it at the network boundary.** Deno
+2.9.8 accepts IPv4 subnet rules but rejects IPv6 subnet syntax in its CLI. The
+profile below denies IPv6 loopback explicitly, but cannot block all private IPv6
+ranges. It is not sufficient for dual-stack hosts without external IPv6
 restrictions.
 
 For an IPv4-only gateway that only needs public upstream services:
@@ -292,12 +294,12 @@ deno run -P=gateway-public-ipv4 --no-prompt --unstable-kv --env-file=.env main.t
 ```
 
 This uses native `fetch()` with Deno's `--deny-net` subnet rules to block
-private, loopback, link-local, multicast, documentation and other special-purpose
-IPv4 destinations. Deno checks resolved IPs and connects using those checked
-addresses,
-preventing DNS rebinding between validation and connection. Native connection
-pooling, TLS verification and HTTP/2 are retained. Blossom redirects still use
-the bounded manual redirect loop, so each hop is subject to the runtime policy.
+private, loopback, link-local, multicast, documentation and other
+special-purpose IPv4 destinations. Deno checks resolved IPs and connects using
+those checked addresses, preventing DNS rebinding between validation and
+connection. Native connection pooling, TLS verification and HTTP/2 are retained.
+Blossom redirects still use the bounded manual redirect loop, so each hop is
+subject to the runtime policy.
 
 **Deployment constraints:**
 
@@ -314,8 +316,8 @@ the bounded manual redirect loop, so each hop is subject to the runtime policy.
 - Do not route these requests through `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`
   or another forwarding proxy unless that proxy independently enforces the same
   destination policy. A proxy can resolve destinations differently.
-- Flower fetches on behalf of publishers and needs its own outbound restrictions.
-  The gateway's Deno permissions do not protect Flower.
+- Flower fetches on behalf of publishers and needs its own outbound
+  restrictions. The gateway's Deno permissions do not protect Flower.
 
 The standard `start`/`dev` tasks, executable shebang, JSR command and default
 Docker command still grant unrestricted network access for compatibility with
@@ -325,10 +327,10 @@ isolate public fetching from trusted internal-service access. Do not weaken the
 deny list merely to get a private service working.
 
 The policy is in `deno.json` (`permissions.gateway-public-ipv4`), not in a task
-command. To exercise native resolved-IP
-checks and redirects using local fixtures, run `deno task test:network` in an
-isolated environment. This explicit test task starts local listeners and child
-Deno processes; the regular unit-test task does not need those permissions.
+command. To exercise native resolved-IP checks and redirects using local
+fixtures, run `deno task test:network` in an isolated environment. This explicit
+test task starts local listeners and child Deno processes; the regular unit-test
+task does not need those permissions.
 
 If `CURATION_USER` is set, the gateway loads that user's mute list via the same
 event loader used elsewhere, keeps it in `eventStore`, and refreshes it on the
@@ -458,27 +460,47 @@ The gateway resolves incoming hostnames to a Nostr site using three strategies
    label, the gateway resolves CNAME records. This enables custom domains like
    `myblog.com → npub1abc....nsite.example.com`.
 
-## Homepage
+## Gateway Pages
 
-The gateway serves a built-in homepage at the root domain that displays all
-currently cached sites as a card grid. Each card shows the site title,
-description, author name, path count, and last-updated time.
+The root domain serves a small set of server-rendered pages with no JavaScript
+and no remote images. Pages that list sites are rendered from an in-memory
+directory snapshot that is rebuilt every `DIRECTORY_REFRESH` seconds, so
+requests never wait on relays or Blossom servers. They are served with an `ETag`
+and `Cache-Control: public, max-age=<DIRECTORY_REFRESH>`.
+
+- **`GET /`**: explains nsites, offers a search box, and lists recently updated
+  or trending (`?tab=trending`) sites with 7-day visit sparklines and featured
+  authors.
+- **`GET /search?q=<query>`**: searches the in-memory directory by site title,
+  identifier, description and author name, or by npub prefix for authors. Author
+  names come only from profiles the gateway already has; searching never loads
+  profiles or contacts relays. Queries are truncated to 64 characters and 6
+  words, results are capped (50 sites, 20 authors), and result pages are cached
+  per query in their own bounded cache. A pasted `npub`, `naddr`, `nevent`,
+  `nprofile`, hex pubkey or nsite URL redirects straight to the site's
+  subdomain. NIP-05 names are not supported.
+- **`GET /sites?sort=updated|trending|name&page=N`**: paginated table of every
+  known site.
+- **`GET /author/:npub`**: sites published by one author.
+- **`GET /status/:address`**: debugging page for publishers. It shows the
+  manifest, the relays it was seen on, Blossom servers, the last result for each
+  path this gateway served (with bad-source marks for failing files), requested
+  paths missing from the manifest, snapshots and the raw event. It only reads
+  data the gateway already has and never contacts relays or Blossom servers; a
+  site that hasn't been visited yet shows a short "not seen yet" page. Status
+  pages send `noindex`.
+- **`GET /status`**: redirects to `/sites`.
+- **`GET /health`**: JSON with version, uptime, site counts, relay connections,
+  last relay sync and verified blob cache metrics.
+- **`GET /robots.txt`**: disallows `/status/` and `/search` unless
+  `public/robots.txt` exists.
+
+Visits are counted for `.html` page views only. `HEAD` requests and known bot or
+script user agents are skipped. Counts are buffered in memory and written to KV
+every 30 seconds as all-time totals and daily buckets kept for 30 days.
 
 To replace the built-in homepage with your own, place an `index.html` file in
 the `public/` directory at the project root.
-
-## Status Dashboard
-
-The gateway serves a built-in status dashboard at `/status`:
-
-- **`GET /status`** — table of all site manifests currently loaded in the event
-  store, with titles, authors, path counts, and last-updated timestamps.
-- **`GET /status/:address`** — detailed view for any `npub`, `naddr`,
-  `nprofile`, raw hex pubkey, or `v<snapshotIdB36>` snapshot id: site metadata,
-  relays, blossom servers, full path table with cached server info, and the raw
-  manifest JSON.
-
-Status pages are always `Cache-Control: no-store`.
 
 ## Onion Header
 

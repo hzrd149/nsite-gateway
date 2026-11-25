@@ -178,6 +178,8 @@ export async function streamBlob(
     blossomProxy?: string;
     signal?: AbortSignal;
     observation?: BlobObservation;
+    /** Called with the source URL that filled the cache for this blob */
+    onSource?: (server: string) => void;
   },
 ): Promise<Response | undefined> {
   if (!isBlobHash(sha256)) return undefined;
@@ -210,6 +212,7 @@ export async function streamBlob(
         await markGoodBlobSource(pubkey, sha256, source);
         signal.throwIfAborted();
         await setBlobServer(pubkey, sha256, source);
+        init.onSource?.(source);
       },
       bad: (source, signal) =>
         markBadBlobSource(pubkey, sha256, source, "hash_mismatch", signal),

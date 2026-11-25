@@ -163,3 +163,14 @@ export const CURRATION_NSEC = CURATION_USER?.startsWith("nsec1")
 export const CURATION_REFRESH = Deno.env.get("CURATION_REFRESH")
   ? parseInt(Deno.env.get("CURATION_REFRESH")!, 10)
   : 10 * 60;
+
+/** How often the landing page, site list and author pages are rebuilt, in seconds */
+const directoryRefresh = Deno.env.get("DIRECTORY_REFRESH")?.trim();
+export const DIRECTORY_REFRESH = directoryRefresh
+  ? Number(directoryRefresh)
+  : 10 * 60;
+if (!Number.isSafeInteger(DIRECTORY_REFRESH) || DIRECTORY_REFRESH < 10) {
+  throw new Error(
+    "DIRECTORY_REFRESH must be an integer number of seconds, at least 10",
+  );
+}

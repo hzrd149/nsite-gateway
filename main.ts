@@ -14,8 +14,13 @@ import {
 } from "./src/env.ts";
 import app from "./src/server.ts";
 import { onShutdown } from "./src/helpers/shutdown.ts";
+import { startAnalyticsService } from "./src/services/analytics.ts";
 import { verifiedBlobCache } from "./src/services/blossom.ts";
 import { startCurationService } from "./src/services/curation.ts";
+import {
+  rebuildDirectory,
+  startDirectoryService,
+} from "./src/services/directory.ts";
 import { subscribeNsiteEvents, syncNsiteEvents } from "./src/services/nostr.ts";
 import { logFields, logValue } from "./src/helpers/request-log.ts";
 
@@ -65,6 +70,8 @@ const server = Deno.serve(
 );
 
 startCurationService();
+startAnalyticsService();
+startDirectoryService();
 
 // Hydrate from nostr relays when set
 if (NOSTR_RELAYS && NOSTR_RELAYS.length > 0) {
@@ -102,6 +109,8 @@ if (NOSTR_RELAYS && NOSTR_RELAYS.length > 0) {
           );
         }
       }
+      // Show newly synced sites without waiting for the next refresh
+      void rebuildDirectory();
     } catch (error) {
       if (error instanceof DOMException && error.name === "TimeoutError") {
         console.warn(

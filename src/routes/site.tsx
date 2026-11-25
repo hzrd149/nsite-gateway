@@ -23,9 +23,11 @@ import {
 } from "../helpers/site-manifest.ts";
 import { PathNotFound } from "../pages/path-not-found.tsx";
 import { SiteNotFound } from "../pages/site-not-found.tsx";
+import { isBotUserAgent } from "../helpers/bots.ts";
 import { incrementHitCount } from "../services/analytics.ts";
 import { streamBlob } from "../services/blossom.ts";
 import { getManifest, getUserBlossomServers } from "../services/nostr.ts";
+import { recordServe } from "../services/site-telemetry.ts";
 
 function appendOnionLocation(
   headers: Headers,
@@ -77,6 +79,7 @@ export async function handleSiteRequest(
 
   const match = resolveManifestPath(manifest, url.pathname);
   if (!match) {
+    recordServe(site, url.pathname, { status: 404, result: "path-not-found" });
     const paths = [...getManifestPaths(manifest).keys()];
     return c.html(
       html`
@@ -92,8 +95,11 @@ export async function handleSiteRequest(
     );
   }
 
-  // Count hits for .html pages (including 404.html)
-  if (match.path.endsWith(".html")) {
+  // Count human page views of .html pages (including 404.html)
+  if (
+    method === "GET" && match.path.endsWith(".html") &&
+    !isBotUserAgent(request.headers.get("user-agent"))
+  ) {
     void incrementHitCount(manifest.pubkey, identifier);
   }
 
@@ -117,6 +123,7 @@ export async function handleSiteRequest(
   }
 
   // Fill if necessary, then serve only verified local bytes.
+  let source: string | undefined;
   const upstream = await streamBlob(match.sha256, servers, {
     method,
     headers: requestHeaders,
@@ -124,8 +131,15 @@ export async function handleSiteRequest(
     blossomProxy: BLOSSOM_PROXY,
     signal: request.signal,
     observation: c.get("blobObservation"),
+    onSource: (server) => source = server,
   });
 
+  if (!upstream || upstream.status >= 500) {
+    recordServe(site, match.path, {
+      status: upstream?.status ?? 502,
+      result: "unavailable",
+    });
+  }
   if (!upstream) {
     return new Response(
       "Bad Gateway: Unable to retrieve the requested file from storage servers.",
@@ -168,6 +182,12 @@ export async function handleSiteRequest(
 
   // Set response status
   const status = match.is404 ? 404 : upstream.status;
+  // source is only set when this request filled the cache from a server
+  recordServe(site, match.is404 ? url.pathname : match.path, {
+    status,
+    result: match.is404 ? "path-not-found" : "served",
+    server: source,
+  });
   const body = method === "HEAD" ? null : upstream.body;
   return new Response(body, { status, headers });
 }

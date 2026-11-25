@@ -97,12 +97,19 @@ export const eventLoader = createEventLoaderForStore(eventStore, pool, {
   extraRelays: relaySet(NOSTR_RELAYS),
 });
 
-export function syncNsiteEvents(
+let lastRelaySync: number | undefined;
+
+/** Unix ms of the last completed relay sync (or last live event) */
+export function getLastRelaySync(): number | undefined {
+  return lastRelaySync;
+}
+
+export async function syncNsiteEvents(
   relays = NOSTR_RELAYS,
   options: NsiteSyncOptions = {},
 ) {
   const until = options.until ?? Math.floor(Date.now() / 1000);
-  return sync(relays, {
+  const result = await sync(relays, {
     totalTimeout: RELAY_SYNC_CONFIG.totalTimeoutMs,
     timeout: RELAY_SYNC_CONFIG.progressTimeoutMs,
     ...(RELAY_SYNC_CONFIG.lookbackSeconds > 0
@@ -114,6 +121,8 @@ export function syncNsiteEvents(
       ? AbortSignal.any([syncAbort.signal, options.signal])
       : syncAbort.signal,
   });
+  lastRelaySync = Date.now();
+  return result;
 }
 
 export function subscribeNsiteEvents(
@@ -133,7 +142,13 @@ export function subscribeNsiteEvents(
     },
   ).subscribe({
     next: (response) => {
+      if (typeof response === "string") {
+        // EOSE: initial sync with the relays is complete
+        lastRelaySync = Date.now();
+        return;
+      }
       eventStore.add(response);
+      lastRelaySync = Date.now();
     },
     error: (error) => {
       console.error(`Live relay sync failed: ${logValue(error)}`);
