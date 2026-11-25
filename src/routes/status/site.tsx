@@ -596,7 +596,7 @@ export async function siteStatusRoute(c: Context): Promise<Response> {
   const manifestPathList = [...manifestPaths.entries()];
   const pathEntries: SitePathEntry[] = await Promise.all(
     manifestPathList.map(async ([path, sha256]) => {
-      const cached = await getBlobServer(sha256);
+      const cached = await getBlobServer(manifest.pubkey, sha256);
       const origin = cached ? extractServerOrigin(cached) : undefined;
       return {
         path,

@@ -4,6 +4,9 @@
 
 ### Patch Changes
 
+- Isolate cached Blossom discovery URLs, proxy hints, preferred sources, and bad
+  sources by manifest publisher, including snapshot requests and status pages.
+  Legacy global source-cache entries are ignored.
 - Validate manifest SHA-256 hashes and Blossom HTTP(S) URLs, including cached
   sources, to prevent local-file reads and URL overrides.
 - Follow up to five Blossom redirects with URL validation at every hop and a

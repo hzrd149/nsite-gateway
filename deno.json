@@ -13,6 +13,7 @@
     "start:public:ipv4": "deno run -P=gateway-public-ipv4 --no-prompt --unstable-kv --env-file=.env main.ts",
     "check": "deno check main.ts",
     "test": "deno test -P=test",
+    "test:blob-cache": "deno test -P=test-blob-cache --unstable-kv src/services/integration/blob-cache.ts",
     "test:network": "deno test -P=test-network src/helpers/integration/native-network.ts",
     "fmt": "deno fmt"
   },
@@ -56,6 +57,11 @@
     "test-network": {
       "net": true,
       "run": ["deno"],
+      "read": true,
+      "write": true
+    },
+    "test-blob-cache": {
+      "env": true,
       "read": true,
       "write": true
     }

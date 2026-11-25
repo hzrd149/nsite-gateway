@@ -46,42 +46,52 @@ export async function setDNSPubkey(
   });
 }
 
-/** Sets the current blossom used for a blob */
-export async function getBlobServer(blob: string) {
-  const entry = await cache.get<string>(["blob-server", blob]);
+// Source selection is publisher-scoped, including proxy discovery hints.
+// Deliberately do not read legacy hash-only keys: they may be poisoned.
+/** Gets the current blossom used for a publisher's blob */
+export async function getBlobServer(pubkey: string, blob: string) {
+  const entry = await cache.get<string>(["blob-server", pubkey, blob]);
 
   return entry.value;
 }
 
 /** Sets the current blossom used for a blob */
-export async function setBlobServer(blob: string, server: string) {
-  return await cache.set(["blob-server", blob], server, {
+export async function setBlobServer(
+  pubkey: string,
+  blob: string,
+  server: string,
+) {
+  return await cache.set(["blob-server", pubkey, blob], server, {
     expireIn: BLOB_SERVER_TTL * 1000,
   });
 }
 
 /** Clears the current blossom used for a blob */
-export async function clearBlobServer(blob: string) {
-  return await cache.delete(["blob-server", blob]);
+export async function clearBlobServer(pubkey: string, blob: string) {
+  return await cache.delete(["blob-server", pubkey, blob]);
 }
 
 /** Gets the servers that should be used for streaming a blob */
-export async function getBlobServers(blob: string) {
-  const entry = await cache.get<string[]>(["blob-servers", blob]);
+export async function getBlobServers(pubkey: string, blob: string) {
+  const entry = await cache.get<string[]>(["blob-servers", pubkey, blob]);
 
   return entry.value;
 }
 
 /** Sets the servers that should be used for streaming a blob */
-export async function setBlobServers(blob: string, servers: string[]) {
-  return await cache.set(["blob-servers", blob], servers, {
+export async function setBlobServers(
+  pubkey: string,
+  blob: string,
+  servers: string[],
+) {
+  return await cache.set(["blob-servers", pubkey, blob], servers, {
     expireIn: CACHE_TIME * 1000,
   });
 }
 
 /** Clears the cached servers for a blob */
-export async function clearBlobServers(blob: string) {
-  return await cache.delete(["blob-servers", blob]);
+export async function clearBlobServers(pubkey: string, blob: string) {
+  return await cache.delete(["blob-servers", pubkey, blob]);
 }
 
 export type BadBlobSourceEntry = {
@@ -91,9 +101,14 @@ export type BadBlobSourceEntry = {
 };
 
 /** Gets a cached bad source for a blob */
-export async function getBadBlobSource(blob: string, server: string) {
+export async function getBadBlobSource(
+  pubkey: string,
+  blob: string,
+  server: string,
+) {
   const entry = await cache.get<BadBlobSourceEntry>([
     "blob-source-bad",
+    pubkey,
     blob,
     server,
   ]);
@@ -103,13 +118,14 @@ export async function getBadBlobSource(blob: string, server: string) {
 
 /** Marks a source as bad for a blob for a limited time */
 export async function setBadBlobSource(
+  pubkey: string,
   blob: string,
   server: string,
   reason: string,
 ) {
   const now = Date.now();
   return await cache.set(
-    ["blob-source-bad", blob, server],
+    ["blob-source-bad", pubkey, blob, server],
     {
       reason,
       createdAt: now,
@@ -122,6 +138,10 @@ export async function setBadBlobSource(
 }
 
 /** Clears a bad source entry for a blob */
-export async function clearBadBlobSource(blob: string, server: string) {
-  return await cache.delete(["blob-source-bad", blob, server]);
+export async function clearBadBlobSource(
+  pubkey: string,
+  blob: string,
+  server: string,
+) {
+  return await cache.delete(["blob-source-bad", pubkey, blob, server]);
 }

@@ -140,7 +140,7 @@ export async function handleSiteRequest(
   const upstream = await streamBlob(match.sha256, servers, {
     method,
     headers: requestHeaders,
-    pubkey,
+    pubkey: manifest.pubkey,
     blossomProxy: BLOSSOM_PROXY,
   });
 
