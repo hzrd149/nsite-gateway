@@ -15,6 +15,7 @@
     "test": "deno test -P=test",
     "test:blob-cache": "deno test -P=test-blob-cache --unstable-kv src/services/integration/blob-cache.ts",
     "test:network": "deno test -P=test-network src/helpers/integration/native-network.ts",
+    "bench:hydration": "deno run -P=bench-hydration --no-prompt src/services/integration/nsite-hydration.ts",
     "fmt": "deno fmt"
   },
   "permissions": {
@@ -59,6 +60,10 @@
       "run": ["deno"],
       "read": true,
       "write": true
+    },
+    "bench-hydration": {
+      "net": true,
+      "env": ["DEBUG", "NO_COLOR", "FORCE_COLOR", "TERM", "COLORTERM"]
     },
     "test-blob-cache": {
       "env": true,

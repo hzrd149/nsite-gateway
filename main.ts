@@ -47,49 +47,75 @@ startCurationService();
 
 // Hydrate from nostr relays when set
 if (NOSTR_RELAYS && NOSTR_RELAYS.length > 0) {
-  console.log("Hydrating from nostr relays...", NOSTR_RELAYS);
-  syncNsiteEvents(NOSTR_RELAYS)
-    .then(({ manifests, deletes }) => {
+  // Use an inclusive shared boundary: live delivery covers events published during
+  // historical hydration, without opening a second full-history subscription.
+  const hydrationUntil = Math.floor(Date.now() / 1000);
+  let syncInFlight = false;
+  let stopped = false;
+  const runSync = async (until?: number) => {
+    if (syncInFlight || stopped) return;
+    syncInFlight = true;
+    try {
+      const result = await syncNsiteEvents(NOSTR_RELAYS, { until });
       console.log(
-        `Found ${manifests} site manifest events and ${deletes} delete events from nostr relays`,
+        `Relay sync received ${result.manifests} unique manifest events and ${result.deletes} delete events in ${
+          Math.round(result.elapsedMs)
+        }ms (${result.complete ? "complete" : "partial"})`,
       );
-    })
-    .catch((error) => {
-      console.error("Failed to hydrate from nostr relays", error);
-    });
+      for (const [phase, status] of Object.entries(result.statuses)) {
+        for (const relay of Object.values(status.relays)) {
+          console.log(
+            `  ${phase} ${relay.relay}: ${relay.state}, ${
+              relay.method ?? "none"
+            }, ${relay.count} events${
+              relay.error ? `, ${relay.error.message}` : ""
+            }${
+              relay.incomplete
+                ? `, incomplete second ${relay.incomplete.timestamp}`
+                : ""
+            }${
+              relay.fallbackReason
+                ? `, fallback: ${relay.fallbackReason.message}`
+                : ""
+            }`,
+          );
+        }
+      }
+    } catch (error) {
+      if (
+        !stopped &&
+        !(error instanceof DOMException && error.name === "AbortError")
+      ) console.error("Relay sync failed", error);
+    } finally {
+      syncInFlight = false;
+    }
+  };
+  onShutdown(() => {
+    stopped = true;
+    return Promise.resolve();
+  });
 
   if (RLEAY_SYNC_INTERVAL === "live") {
     console.log("Live relay sync enabled");
-    const liveSync = subscribeNsiteEvents(NOSTR_RELAYS);
+    const liveSync = subscribeNsiteEvents(NOSTR_RELAYS, hydrationUntil);
 
     onShutdown(() => {
       liveSync.unsubscribe();
       return Promise.resolve();
     });
   } else {
-    let syncInFlight = false;
-    const syncTimer = setInterval(async () => {
-      if (syncInFlight) return;
-
-      syncInFlight = true;
-
-      try {
-        const { manifests, deletes } = await syncNsiteEvents(NOSTR_RELAYS);
-        console.log(
-          `Periodic relay sync found ${manifests} new site manifest events and ${deletes} delete events`,
-        );
-      } catch (error) {
-        console.error("Periodic relay sync failed", error);
-      } finally {
-        syncInFlight = false;
-      }
-    }, RLEAY_SYNC_INTERVAL * 1000);
+    const syncTimer = setInterval(
+      () => void runSync(),
+      RLEAY_SYNC_INTERVAL * 1000,
+    );
 
     onShutdown(() => {
       clearInterval(syncTimer);
       return Promise.resolve();
     });
   }
+  console.log("Hydrating from nostr relays...", NOSTR_RELAYS);
+  void runSync(hydrationUntil);
 }
 
 onShutdown(async () => {

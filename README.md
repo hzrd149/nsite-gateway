@@ -78,10 +78,44 @@ merely running from the package directory does not activate them.
 
 If `NOSTR_RELAYS` is set, the gateway will bulk-fetch all known site manifests
 (kinds `15128`, `35128`, and `5128`) from those relays at startup,
-pre-populating the in-memory event store, and then re-check those relays every
-`RLEAY_SYNC_INTERVAL` seconds for newer manifest events. Set
-`RLEAY_SYNC_INTERVAL=live` to keep a persistent relay subscription open instead
-of using periodic sync.
+pre-populating the in-memory event store, and then reconcile those relays every
+`RLEAY_SYNC_INTERVAL` seconds. Manifests and nsite-scoped deletions load
+concurrently through Applesauce's sync loader: NIP-77 negentropy retrieves
+missing events where supported, with paginated requests as a fallback.
+Reconciliation includes older backfilled and same-second events rather than
+advancing a shared timestamp cursor. Relays without NIP-77 re-read history on
+each periodic run; use live mode when repeated historical scans are undesirable.
+Logs include duration, loading method and completion state for each relay. An
+errored, skipped or unpageable relay is reported as partial coverage, not a
+successful full hydration. Public reads do not wait for relay authentication;
+relays requiring it are reported as errors.
+
+Set `RLEAY_SYNC_INTERVAL=live` to keep a persistent relay subscription open
+instead of using periodic sync. This subscription starts at the inclusive
+hydration boundary while the sync loader retrieves history, avoiding a second
+unrestricted historical request. Startup and periodic syncs cannot overlap;
+active hydration is cancelled on shutdown.
+
+### Comparing relay hydration
+
+Run the read-only benchmark against the example public relays (Damus, Primal
+and Ditto):
+
+```sh
+deno task bench:hydration
+# Optional explicit relays and limits (milliseconds):
+deno task bench:hydration --runs=3 --timeout=15000 --deadline=120000 wss://relay.damus.io wss://relay.primal.net wss://relay.ditto.pub
+```
+
+It compares the previous sequential one-shot requests against the sync loader,
+using a fresh pool and empty store for each measurement, a shared historical
+upper bound, and alternating run order. JSON output includes first-manifest and
+total time, retained manifests by kind, indexed sites, differences in event/site
+sets, and per-relay sync methods and coverage. The default is three trials.
+Legacy request completion does not prove complete coverage; compare counts as
+well as speed. NIP-77 is only used on supporting relays and is not necessarily
+faster for an empty store. The benchmark never loads `.env`, publishes events,
+or accesses the gateway's caches.
 
 ### Public-network-only mode (IPv4 deployments)
 
