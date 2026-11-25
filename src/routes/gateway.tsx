@@ -26,6 +26,7 @@ import {
 import { verifiedBlobCache } from "../services/blossom.ts";
 import { getCachedPage, getDirectory } from "../services/directory.ts";
 import { getLastRelaySync, pool } from "../services/nostr.ts";
+import { getPersistentStats } from "../services/stats.ts";
 import { siteStatusRoute } from "./status.tsx";
 
 const router = new Hono();
@@ -229,6 +230,7 @@ router.get("/health", (c) => {
       relays: { connected: relaysConnected, total: pool.relays.size },
       lastRelaySync: lastSync ? new Date(lastSync).toISOString() : null,
       blobCache: verifiedBlobCache.metrics,
+      ...getPersistentStats(),
     },
     200,
     { "Cache-Control": "no-store" },

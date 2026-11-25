@@ -11,6 +11,7 @@ import {
   requestLog,
   type RequestLogEnv,
 } from "./helpers/request-log.ts";
+import { incrementCounter, requestStats } from "./services/stats.ts";
 
 const app = new Hono<RequestLogEnv>();
 app.onError(requestError);
@@ -36,6 +37,7 @@ function isGatewayRootHost(hostname: string): boolean {
 }
 
 app.use(requestLog);
+app.use(requestStats);
 
 app.use(
   "*",
@@ -54,9 +56,11 @@ app.all("*", async (c) => {
   if (!isGatewayRootHost(hostname)) {
     const pointer = await resolvePubkeyFromHostname(hostname);
     if (pointer) {
+      incrementCounter("requests.site");
       return await handleSiteRequest(c, pointer);
     }
 
+    incrementCounter("requests.invalid-host");
     return c.html(
       html`
         <!DOCTYPE html>${InvalidAddress({ hostname })}
@@ -65,6 +69,7 @@ app.all("*", async (c) => {
     );
   }
 
+  incrementCounter("requests.gateway");
   return await handleLocalRouter(c.req.raw);
 });
 

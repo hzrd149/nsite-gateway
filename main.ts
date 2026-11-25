@@ -21,6 +21,7 @@ import {
   refreshDirectory,
   startDirectoryService,
 } from "./src/services/directory.ts";
+import { startStatsService } from "./src/services/stats.ts";
 import { subscribeNsiteEvents, syncNsiteEvents } from "./src/services/nostr.ts";
 import { logFields, logValue } from "./src/helpers/request-log.ts";
 
@@ -70,6 +71,7 @@ const server = Deno.serve(
 );
 
 startCurationService();
+startStatsService();
 await startAnalyticsService();
 startDirectoryService();
 

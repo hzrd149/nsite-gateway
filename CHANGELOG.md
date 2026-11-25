@@ -8,6 +8,10 @@
   stats and serve logs are kept for `STATS_RETENTION_DAYS` (default 90).
 - Track bot page views, file requests, not-found and unavailable responses per
   site, plus per-path request counts, and show them on site status pages.
+- Persist gateway request counters (by status class, site/gateway and blob cache
+  outcome), cumulative blob cache metrics and total uptime across restarts.
+  `/health` adds `firstStartedAt`, `totalUptime`, `requests` and
+  `blobCacheTotals`.
 - Fix lost visit counts and serve-log records on graceful shutdown: buffered
   stats are now flushed before the KV store closes.
 
