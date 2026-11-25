@@ -103,7 +103,7 @@ function loadSites(): IndexedSite[] {
   return sites;
 }
 
-async function build(): Promise<Directory> {
+function build(): Directory {
   const started = performance.now();
   const sites = loadSites();
   const { profiles } = readProfiles(new Set(sites.map((s) => s.pubkey)));
@@ -134,7 +134,9 @@ async function build(): Promise<Directory> {
 
 /** Rebuilds the directory (coalesces concurrent calls) */
 export function rebuildDirectory(): Promise<Directory> {
-  building ??= build().finally(() => building = undefined);
+  building ??= Promise.resolve().then(build).finally(() =>
+    building = undefined
+  );
   return building;
 }
 
