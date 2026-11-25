@@ -25,6 +25,22 @@
   files in the Docker Compose cache volume. Replace VERIFY_WORKER_POOL_MAX with
   disk-cache limits.
 
+- Bound each relay hydration run with a configurable total deadline
+  (`RELAY_SYNC_TIMEOUT`, default 120 seconds) and per-relay progress timeout
+  (`RELAY_SYNC_PROGRESS_TIMEOUT`, default 15 seconds). Keep events loaded before
+  cancellation and report partial hydration.
+- Add `RELAY_SYNC_LOOKBACK` to limit startup and periodic hydration to a rolling
+  date window; default `0` retains full history. Validate settings at startup
+  and support bounded-window comparisons in the hydration benchmark.
+- Hydrate and periodically reconcile nsite manifests and deletions concurrently
+  with Applesauce's NIP-77 sync loader and paginated fallback, including older
+  backfills and same-second events. Report per-relay coverage and duration,
+  avoid overlapping startup/periodic runs and duplicate live history requests,
+  and cancel hydration on shutdown.
+- Add a read-only public-relay hydration benchmark comparing the previous
+  one-shot loader with the sync loader using fresh pools and stores.
+- Include `wss://relay.ditto.pub` alongside Damus and Primal in the example
+  relay configuration and hydration benchmark defaults.
 - Isolate cached Blossom discovery URLs, proxy hints, preferred sources, and bad
   sources by manifest publisher, including snapshot requests and status pages.
   Legacy global source-cache entries are ignored.

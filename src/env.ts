@@ -4,6 +4,7 @@ import {
   normalizeToSecretKey,
   relaySet,
 } from "applesauce-core/helpers";
+import { parseRelaySyncConfig } from "./helpers/relay-sync-config.ts";
 
 function getList(name: string, fallback: string[] = []): string[] {
   const value = Deno.env.get(name);
@@ -33,6 +34,12 @@ export const LOOKUP_RELAYS = relaySet(
 
 /** Extra nostr relays to use for loading site manifests */
 export const NOSTR_RELAYS = relaySet(getList("NOSTR_RELAYS"));
+
+export const RELAY_SYNC_CONFIG = parseRelaySyncConfig({
+  RELAY_SYNC_TIMEOUT: Deno.env.get("RELAY_SYNC_TIMEOUT"),
+  RELAY_SYNC_PROGRESS_TIMEOUT: Deno.env.get("RELAY_SYNC_PROGRESS_TIMEOUT"),
+  RELAY_SYNC_LOOKBACK: Deno.env.get("RELAY_SYNC_LOOKBACK"),
+});
 
 const relaySyncInterval = Deno.env.get("RLEAY_SYNC_INTERVAL")?.trim();
 const parsedRelaySyncInterval = relaySyncInterval

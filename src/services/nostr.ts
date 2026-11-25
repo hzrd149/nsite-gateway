@@ -3,7 +3,6 @@ import { BLOSSOM_SERVER_LIST_KIND } from "applesauce-common/helpers";
 import { getBlossomServers } from "../helpers/blossom.ts";
 import { EventStore, firstValueFrom, lastValueFrom } from "applesauce-core";
 import {
-  type Filter,
   getInboxes,
   getOutboxes,
   getProfileContent,
@@ -23,10 +22,16 @@ import {
   NOSTR_RELAYS,
   OUTBOXES_STALE_TIME,
   PROFILES_STALE_TIME,
+  RELAY_SYNC_CONFIG,
   SERVERS_STALE_TIME,
 } from "../env.ts";
 import logger from "../helpers/debug.ts";
 import { formatAgeFromUnix } from "../helpers/format.ts";
+import {
+  createNsiteSync,
+  NSITE_SYNC_FILTERS,
+  type NsiteSyncOptions,
+} from "../helpers/nsite-sync.ts";
 import type {
   ReplaceableSiteAddress,
   ResolvedSiteAddress,
@@ -42,17 +47,11 @@ import {
 
 const log = logger.extend("nostr");
 
-const DELETE_EVENT_KIND = 5;
-
-const SITE_MANIFEST_KINDS = [
-  ROOT_SITE_MANIFEST_KIND,
-  NAMED_SITE_MANIFEST_KIND,
-  MANIFEST_SNAPSHOT_KIND,
-];
-
 export const pool = new RelayPool();
 
 export const eventStore = new EventStore();
+const syncAbort = new AbortController();
+const sync = createNsiteSync({ eventStore, pool });
 
 // Setup debug logging for incoming nostr events
 eventStore.filters({ kinds: [BLOSSOM_SERVER_LIST_KIND] }).subscribe((list) => {
@@ -85,6 +84,7 @@ eventStore.filters({ kinds: [kinds.RelayList] }).subscribe((list) => {
 
 onShutdown(() => {
   console.log("Shutting down Nostr service");
+  syncAbort.abort();
   for (const [, relay] of pool.relays) relay.close();
   return Promise.resolve();
 });
@@ -96,93 +96,34 @@ export const eventLoader = createEventLoaderForStore(eventStore, pool, {
   extraRelays: relaySet(NOSTR_RELAYS),
 });
 
-function getLatestSiteManifestCreatedAt(): number | undefined {
-  const manifests = eventStore.getTimeline({ kinds: SITE_MANIFEST_KINDS });
-
-  if (manifests.length === 0) return undefined;
-
-  let latest = manifests[0].created_at;
-
-  for (let i = 1; i < manifests.length; i++) {
-    if (manifests[i].created_at > latest) latest = manifests[i].created_at;
-  }
-
-  return latest;
-}
-
-function getLatestSiteDeleteCreatedAt(): number | undefined {
-  const deletes = eventStore.getTimeline({ kinds: [DELETE_EVENT_KIND] });
-  return deletes[0]?.created_at;
-}
-
-async function requestAndStoreEvents(
-  relays: string[],
-  filter: Filter,
-): Promise<number> {
-  return await new Promise((resolve, reject) => {
-    let found = 0;
-
-    pool.request(relays, filter).subscribe({
-      next: (event) => {
-        const insert = eventStore.add(event);
-        if (insert && insert === event) found++;
-      },
-      error: reject,
-      complete: () => resolve(found),
-    });
-  });
-}
-
-export async function syncSiteManifests(
+export function syncNsiteEvents(
   relays = NOSTR_RELAYS,
-): Promise<number> {
-  if (!relays || relays.length === 0) return 0;
-
-  const latestCreatedAt = getLatestSiteManifestCreatedAt();
-  const since = latestCreatedAt === undefined ? undefined : latestCreatedAt + 1;
-
-  return await requestAndStoreEvents(relays, {
-    kinds: SITE_MANIFEST_KINDS,
-    ...(since === undefined ? {} : { since }),
+  options: NsiteSyncOptions = {},
+) {
+  const until = options.until ?? Math.floor(Date.now() / 1000);
+  return sync(relays, {
+    totalTimeout: RELAY_SYNC_CONFIG.totalTimeoutMs,
+    timeout: RELAY_SYNC_CONFIG.progressTimeoutMs,
+    ...(RELAY_SYNC_CONFIG.lookbackSeconds > 0
+      ? { since: Math.max(0, until - RELAY_SYNC_CONFIG.lookbackSeconds) }
+      : {}),
+    ...options,
+    until,
+    signal: options.signal
+      ? AbortSignal.any([syncAbort.signal, options.signal])
+      : syncAbort.signal,
   });
 }
 
-export async function syncSiteManifestDeletes(
+export function subscribeNsiteEvents(
   relays = NOSTR_RELAYS,
-): Promise<number> {
-  if (!relays || relays.length === 0) return 0;
-
-  const latestCreatedAt = getLatestSiteDeleteCreatedAt();
-  const since = latestCreatedAt === undefined ? undefined : latestCreatedAt + 1;
-
-  return await requestAndStoreEvents(relays, {
-    // Get delete events
-    kinds: [DELETE_EVENT_KIND],
-    // Filter for delete events targeting nsite kinds
-    "#k": SITE_MANIFEST_KINDS.map((kind) => String(kind)),
-    ...(since === undefined ? {} : { since }),
-  });
-}
-
-export async function syncNsiteEvents(relays = NOSTR_RELAYS): Promise<{
-  manifests: number;
-  deletes: number;
-}> {
-  const manifests = await syncSiteManifests(relays);
-  const deletes = await syncSiteManifestDeletes(relays);
-
-  return { manifests, deletes };
-}
-
-export function subscribeNsiteEvents(relays = NOSTR_RELAYS): Subscription {
+  since = Math.floor(Date.now() / 1000),
+): Subscription {
   return pool.subscription(
     relays,
     [
-      { kinds: SITE_MANIFEST_KINDS },
-      {
-        kinds: [DELETE_EVENT_KIND],
-        "#k": SITE_MANIFEST_KINDS.map((kind) => String(kind)),
-      },
+      { ...NSITE_SYNC_FILTERS.manifests, since },
+      { ...NSITE_SYNC_FILTERS.deletes, since },
     ],
     {
       id: "nsite-live-sync",
