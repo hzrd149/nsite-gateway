@@ -15,6 +15,7 @@ import {
   formatSnapshotSubdomain,
 } from "../helpers/nsite-host.ts";
 import type { ResolvedSiteAddress } from "../helpers/resolved-site.ts";
+import type { RequestLogEnv } from "../helpers/request-log.ts";
 import {
   getManifestPaths,
   getManifestServers,
@@ -50,7 +51,7 @@ function getSiteLastModified(createdAt: number): string {
 }
 
 export async function handleSiteRequest(
-  c: Context,
+  c: Context<RequestLogEnv>,
   site: ResolvedSiteAddress,
 ): Promise<Response> {
   const request = c.req.raw;
@@ -122,6 +123,7 @@ export async function handleSiteRequest(
     pubkey: manifest.pubkey,
     blossomProxy: BLOSSOM_PROXY,
     signal: request.signal,
+    observation: c.get("blobObservation"),
   });
 
   if (!upstream) {

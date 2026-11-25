@@ -6,6 +6,7 @@ import {
   parseBlossomURL,
 } from "../helpers/blossom.ts";
 import { hasMatchingIfNoneMatch } from "../helpers/http-cache.ts";
+import { type BlobObservation, logValue } from "../helpers/request-log.ts";
 
 export class CacheAdmissionError extends Error {}
 export class BlobIntegrityError extends Error {}
@@ -51,6 +52,9 @@ interface Entry {
   pins: number;
 }
 interface Job {
+  verificationMs: number;
+  verificationStarted?: number;
+  verificationAttempted: boolean;
   hash: string;
   publisher: string;
   controller: AbortController;
@@ -65,6 +69,7 @@ interface Job {
   retire: () => void;
 }
 export interface BlobRequest {
+  observation?: BlobObservation;
   publisher: string;
   method?: string;
   headers?: HeadersInit;
@@ -260,6 +265,8 @@ export class VerifiedBlobCache {
     let retire!: () => void;
     const retired = new Promise<void>((resolve) => retire = resolve);
     const job: Job = {
+      verificationMs: 0,
+      verificationAttempted: false,
       hash,
       publisher: request.publisher,
       controller: new AbortController(),
@@ -409,6 +416,8 @@ export class VerifiedBlobCache {
             mode: 0o600,
           });
           created = true;
+          job.verificationAttempted = true;
+          job.verificationStarted = performance.now();
           const digest = createHash("sha256");
           let size = 0;
           while (true) {
@@ -435,6 +444,8 @@ export class VerifiedBlobCache {
           if (length !== null && Number(length) !== size) {
             throw new Error("Truncated upstream body");
           }
+          job.verificationMs += performance.now() - job.verificationStarted;
+          job.verificationStarted = undefined;
           await file.sync();
           file.close();
           file = undefined;
@@ -454,6 +465,10 @@ export class VerifiedBlobCache {
           await this.hint(request.good, source, controller.signal);
           return true;
         } catch (error) {
+          if (job.verificationStarted !== undefined) {
+            job.verificationMs += performance.now() - job.verificationStarted;
+            job.verificationStarted = undefined;
+          }
           this.metrics.failures++;
           if (error instanceof BlobIntegrityError) {
             this.metrics.corrupt++;
@@ -462,7 +477,7 @@ export class VerifiedBlobCache {
           console.warn(
             `[nsite:disk-cache] fill ${hash.slice(0, 12)} from ${
               parseBlossomURL(source)?.origin ?? "invalid-url"
-            } failed: ${error instanceof Error ? error.message : error}`,
+            } failed: ${logValue(error)}`,
           );
           if (error instanceof CacheAdmissionError) {
             throw error;
@@ -500,16 +515,20 @@ export class VerifiedBlobCache {
     hash: string,
     request: BlobRequest,
   ): Promise<Response | undefined> {
+    const observation = request.observation;
     if (!isBlobHash(hash)) throw new Error("Invalid blob hash");
     if (this.closed || this.broken) this.reject("Disk cache unavailable");
     request.signal?.throwIfAborted();
     let entry = this.entries.get(hash);
+    if (observation) observation.cache = entry ? "hit" : "miss";
     if (!entry) {
       if (this.metrics.waiters >= this.options.waiters) {
         this.reject("Fill waiters full");
       }
       this.metrics.waiters++;
       this.metrics.misses++;
+      const waitingSince = performance.now();
+      let ownedFill = false;
       try {
         while (!entry) {
           request.signal?.throwIfAborted();
@@ -519,7 +538,16 @@ export class VerifiedBlobCache {
             entry.pins++;
             break;
           }
-          const job = this.jobs.get(hash) ?? this.newJob(hash, request);
+          const existing = this.jobs.get(hash);
+          const job = existing ?? this.newJob(hash, request);
+          if (!existing) ownedFill = true;
+          if (observation) {
+            observation.cache = ownedFill ? "miss" : "coalesced";
+            if (!ownedFill) observation.verification = "shared-fill";
+            else if (observation.verification === "shared-fill") {
+              observation.verification = "none";
+            }
+          }
           if (job.retiring) {
             await cancellable(() => job.retired, request.signal);
             continue;
@@ -531,19 +559,34 @@ export class VerifiedBlobCache {
               request.signal?.aborted || error instanceof CacheAdmissionError ||
               job.publisher === request.publisher
             ) throw error;
+          } finally {
+            // Only the creator attributes this job's hashing. Cancellation takes
+            // a snapshot: other waiters may continue after the creator leaves.
+            if (!existing && observation && job.verificationAttempted) {
+              observation.verification = "incremental-sha256";
+              observation.verification_ms += job.verificationMs +
+                (job.verificationStarted === undefined
+                  ? 0
+                  : performance.now() - job.verificationStarted);
+            }
           }
           if (!entry && job.publisher === request.publisher) return undefined;
           if (!entry) await cancellable(() => job.retired, request.signal);
           // A foreign publisher's failure never poisons this publisher's fill.
         }
       } finally {
+        if (observation) {
+          observation.cache_wait_ms = performance.now() - waitingSince;
+        }
         this.metrics.waiters--;
       }
     } else {
       this.metrics.hits++;
+      if (observation) observation.verification = "previously-verified";
       entry.pins++;
     }
     try {
+      if (observation) observation.verified = true;
       return await this.serve(hash, entry, request);
     } finally {
       entry.pins--;

@@ -6,8 +6,14 @@ import { InvalidAddress } from "./pages/invalid-address.tsx";
 import { handleLocalRouter } from "./routes/home.tsx";
 import { handleSiteRequest } from "./routes/site.tsx";
 import { resolvePubkeyFromHostname } from "./services/dns.ts";
+import {
+  requestError,
+  requestLog,
+  type RequestLogEnv,
+} from "./helpers/request-log.ts";
 
-const app = new Hono();
+const app = new Hono<RequestLogEnv>();
+app.onError(requestError);
 
 function getOnionHostname(): string | undefined {
   if (!ONION_HOST) return undefined;
@@ -29,16 +35,7 @@ function isGatewayRootHost(hostname: string): boolean {
   return GATEWAY_ROOT_HOSTS.has(hostname.toLowerCase());
 }
 
-app.use(async (c, next) => {
-  const hostname = new URL(c.req.url).hostname;
-  const method = c.req.method;
-  const path = new URL(c.req.url).pathname;
-  console.log(`  <-- ${method} ${hostname}${path}`);
-  const start = Date.now();
-  await next();
-  const ms = Date.now() - start;
-  console.log(`  --> ${method} ${hostname}${path} ${c.res.status} ${ms}ms`);
-});
+app.use(requestLog);
 
 app.use(
   "*",

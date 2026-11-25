@@ -26,6 +26,7 @@ import {
   SERVERS_STALE_TIME,
 } from "../env.ts";
 import logger from "../helpers/debug.ts";
+import { logValue } from "../helpers/request-log.ts";
 import { formatAgeFromUnix } from "../helpers/format.ts";
 import {
   createNsiteSync,
@@ -135,7 +136,7 @@ export function subscribeNsiteEvents(
       eventStore.add(response);
     },
     error: (error) => {
-      console.error("Live relay sync failed", error);
+      console.error(`Live relay sync failed: ${logValue(error)}`);
     },
   });
 }

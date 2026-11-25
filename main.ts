@@ -1,4 +1,4 @@
-#!/usr/bin/env -S deno run --unstable-kv --allow-env --allow-net --allow-read --allow-write --allow-sys=uid
+#!/usr/bin/env -S deno run --unstable-kv --unstable-no-legacy-abort --allow-env --allow-net --allow-read --allow-write --allow-sys=uid
 
 import {
   BLOSSOM_PROXY,
@@ -17,6 +17,7 @@ import { onShutdown } from "./src/helpers/shutdown.ts";
 import { verifiedBlobCache } from "./src/services/blossom.ts";
 import { startCurationService } from "./src/services/curation.ts";
 import { subscribeNsiteEvents, syncNsiteEvents } from "./src/services/nostr.ts";
+import { logFields, logValue } from "./src/helpers/request-log.ts";
 
 function formatList(values: string[] | undefined, empty = "none") {
   return values && values.length > 0 ? values.join(", ") : empty;
@@ -39,9 +40,13 @@ console.log(
 );
 console.log(`blossom servers: ${formatList(BLOSSOM_SERVERS)}`);
 console.log(`blossom proxy: ${BLOSSOM_PROXY || "none"}`);
-console.log("verified disk cache:", verifiedBlobCache.options);
+console.log(
+  `[nsite:disk-cache] limits ${logFields(verifiedBlobCache.options)}`,
+);
 const cacheMetricsTimer = setInterval(() => {
-  console.log("[nsite:disk-cache] metrics", verifiedBlobCache.metrics);
+  console.log(
+    `[nsite:disk-cache] metrics ${logFields(verifiedBlobCache.metrics)}`,
+  );
 }, 60_000);
 onShutdown(() => {
   clearInterval(cacheMetricsTimer);
@@ -106,7 +111,7 @@ if (NOSTR_RELAYS && NOSTR_RELAYS.length > 0) {
       } else if (
         !stopped &&
         !(error instanceof DOMException && error.name === "AbortError")
-      ) console.error("Relay sync failed", error);
+      ) console.error(`Relay sync failed: ${logValue(error)}`);
     } finally {
       syncInFlight = false;
     }
@@ -135,7 +140,7 @@ if (NOSTR_RELAYS && NOSTR_RELAYS.length > 0) {
       return Promise.resolve();
     });
   }
-  console.log("Hydrating from nostr relays...", NOSTR_RELAYS);
+  console.log(`Hydrating from nostr relays: ${formatList(NOSTR_RELAYS)}`);
   void runSync(hydrationUntil);
 }
 

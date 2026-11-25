@@ -1,5 +1,6 @@
 import { assertEquals, assertRejects, assertThrows } from "jsr:@std/assert";
 import { createHash } from "node:crypto";
+import { newBlobObservation } from "../../helpers/request-log.ts";
 import {
   CacheAdmissionError,
   VerifiedBlobCache,
@@ -10,6 +11,165 @@ const hash = (text: string) => createHash("sha256").update(text).digest("hex");
 const encode = (text: string) => new TextEncoder().encode(text);
 const sources = () => Promise.resolve(["https://fixture.example/blob"]);
 const request = { publisher: "alice", sources };
+
+Deno.test("verified cache: per-request timing, coalescing, cold and warm HTTP attribution", () =>
+  fixture(async (cache) => {
+    const started = deferred<void>();
+    const finish = deferred<void>();
+    globalThis.fetch = () =>
+      Promise.resolve(
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              started.resolve();
+              void finish.promise.then(() => {
+                controller.enqueue(encode("verified"));
+                controller.close();
+              });
+            },
+          }),
+        ),
+      );
+    const owner = newBlobObservation();
+    const waiter = newBlobObservation();
+    const first = cache.response(hash("verified"), {
+      ...request,
+      observation: owner,
+      method: "HEAD",
+      sources: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 40));
+        return await sources();
+      },
+    });
+    await started.promise;
+    const second = cache.response(hash("verified"), {
+      ...request,
+      observation: waiter,
+      headers: { "if-none-match": `"${hash("verified")}"` },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    finish.resolve();
+    assertEquals((await first)?.status, 200);
+    assertEquals((await second)?.status, 304);
+    assertEquals(owner.cache, "miss");
+    assertEquals(owner.verification, "incremental-sha256");
+    assertEquals(owner.verified, true);
+    assertEquals(owner.verification_ms > 0, true);
+    assertEquals(owner.cache_wait_ms - owner.verification_ms >= 35, true);
+    assertEquals(waiter.cache, "coalesced");
+    assertEquals(waiter.verification, "shared-fill");
+    assertEquals(waiter.verification_ms, 0);
+    assertEquals(waiter.verified, true);
+    for (
+      const [method, headers, status] of [
+        ["HEAD", {}, 200],
+        ["GET", { "if-none-match": `"${hash("verified")}"` }, 304],
+        ["GET", { range: "bytes=1-3" }, 206],
+        ["GET", { range: "bytes=999-" }, 416],
+      ] as const
+    ) {
+      const observation = newBlobObservation();
+      const response = await cache.response(hash("verified"), {
+        ...request,
+        method,
+        headers,
+        observation,
+      });
+      assertEquals(response?.status, status);
+      await response?.body?.cancel();
+      assertEquals(observation, {
+        cache: "hit",
+        verification: "previously-verified",
+        verification_ms: 0,
+        cache_wait_ms: 0,
+        verified: true,
+      });
+    }
+    // A cold range still verifies the entire file.
+    globalThis.fetch = () => Promise.resolve(new Response("range"));
+    const range = newBlobObservation();
+    const response = await cache.response(hash("range"), {
+      ...request,
+      observation: range,
+      headers: { range: "bytes=1-2" },
+    });
+    assertEquals(await response?.text(), "an");
+    assertEquals(range.cache, "miss");
+    assertEquals(range.verification, "incremental-sha256");
+    assertEquals(range.verified, true);
+  }));
+
+Deno.test("verified cache: failures and cancelled creators cannot borrow shared verification", () =>
+  fixture(async (cache) => {
+    const missing = newBlobObservation();
+    assertEquals(
+      await cache.response(hash("missing"), {
+        ...request,
+        sources: () => Promise.resolve([]),
+        observation: missing,
+      }),
+      undefined,
+    );
+    assertEquals(missing.cache, "miss");
+    assertEquals(missing.verification, "none");
+    assertEquals(missing.verification_ms, 0);
+    assertEquals(missing.verified, false);
+
+    globalThis.fetch = () => Promise.resolve(new Response("corrupt"));
+    const corrupt = newBlobObservation();
+    assertEquals(
+      await cache.response(hash("missing"), {
+        ...request,
+        observation: corrupt,
+      }),
+      undefined,
+    );
+    assertEquals(corrupt.verification, "incremental-sha256");
+    assertEquals(corrupt.verified, false);
+
+    const started = deferred<void>();
+    const finish = deferred<void>();
+    globalThis.fetch = () =>
+      Promise.resolve(
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              started.resolve();
+              void finish.promise.then(() => {
+                controller.enqueue(encode("verified"));
+                controller.close();
+              });
+            },
+          }),
+        ),
+      );
+    const controller = new AbortController();
+    const owner = newBlobObservation();
+    const first = cache.response(hash("verified"), {
+      ...request,
+      observation: owner,
+      signal: controller.signal,
+    });
+    await started.promise;
+    const waiter = newBlobObservation();
+    const second = cache.response(hash("verified"), {
+      ...request,
+      observation: waiter,
+    });
+    // Let the owner enter the streaming loop before cancellation.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    controller.abort(new Error("fixture disconnect"));
+    await assertRejects(() => first, Error, "fixture disconnect");
+    const snapshot = { ...owner };
+    assertEquals(owner.verification, "incremental-sha256");
+    assertEquals(owner.verified, false);
+    finish.resolve();
+    assertEquals(await (await second)?.text(), "verified");
+    assertEquals(owner, snapshot);
+    assertEquals(waiter.verification, "shared-fill");
+    assertEquals(waiter.verification_ms, 0);
+    assertEquals(waiter.verified, true);
+  }));
 function deferred<T>() {
   let resolve!: (value: T) => void;
   let reject!: (error: unknown) => void;

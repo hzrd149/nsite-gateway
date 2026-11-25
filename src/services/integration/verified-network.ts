@@ -4,6 +4,152 @@ import { createHash } from "node:crypto";
 import { gzipSync } from "node:zlib";
 import { VerifiedBlobCache } from "../verified-blob-cache.ts";
 
+async function within<T>(promise: Promise<T>): Promise<T> {
+  let timer!: ReturnType<typeof setTimeout>;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("Lifecycle deadline")), 5000);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+Deno.test("corrected Deno abort: successful delivery releases readers, disconnect cancels pinned stream", async () => {
+  const directory = await Deno.makeTempDir();
+  const smallHash = createHash("sha256").update("ok").digest("hex");
+  await Deno.writeTextFile(`${directory}/${smallHash}.blob`, "ok");
+  // Trusted on-disk fixture large enough to retain backpressure on loopback.
+  const chunk = new Uint8Array(1024 * 1024);
+  const digest = createHash("sha256");
+  const temporary = `${directory}/fixture`;
+  const file = await Deno.open(temporary, { create: true, write: true });
+  try {
+    for (let n = 0; n < 32; n++) {
+      digest.update(chunk);
+      let offset = 0;
+      while (offset < chunk.length) {
+        offset += await file.write(chunk.subarray(offset));
+      }
+    }
+  } finally {
+    file.close();
+  }
+  const largeHash = digest.digest("hex");
+  await Deno.rename(temporary, `${directory}/${largeHash}.blob`);
+  const cache = new VerifiedBlobCache({
+    directory,
+    quota: 64 * 1024 * 1024,
+    maxFileSize: 32 * 1024 * 1024,
+    fills: 1,
+    pending: 1,
+    waiters: 4,
+    sources: 1,
+    entries: 4,
+    readers: 4,
+    fillTimeout: 2000,
+    stallTimeout: 4000,
+  });
+  let resolveSuccess!: () => void;
+  const success = new Promise<void>((resolve) => resolveSuccess = resolve);
+  let resolveDisconnected!: () => void;
+  const disconnected = new Promise<void>((resolve) =>
+    resolveDisconnected = resolve
+  );
+  let smallSignal: AbortSignal | undefined;
+  let resolvePending!: () => void;
+  const pending = new Promise<void>((resolve) => resolvePending = resolve);
+  let resolveAborted!: () => void;
+  const aborted = new Promise<void>((resolve) => resolveAborted = resolve);
+  const server = Deno.serve(
+    { hostname: "127.0.0.1", port: 0, onListen() {} },
+    async (req, info) => {
+      if (new URL(req.url).pathname === "/pending") {
+        req.signal.addEventListener("abort", resolveAborted, { once: true });
+        try {
+          await cache.response("a".repeat(64), {
+            publisher: "fixture",
+            signal: req.signal,
+            sources: () => {
+              resolvePending();
+              return new Promise(() => {});
+            },
+          });
+        } catch { /* expected disconnect */ }
+        return new Response(null, { status: 503 });
+      }
+      const small = new URL(req.url).pathname === "/small";
+      if (small) smallSignal = req.signal;
+      void info.completed.then(() => {
+        if (small) resolveSuccess();
+      }, () => {});
+      const response = (await cache.response(small ? smallHash : largeHash, {
+        publisher: "fixture",
+        signal: req.signal,
+        sources: () => Promise.resolve([]),
+      }))!;
+      if (small) return response;
+      // Deno 2.9.8 cancels the response body on a mid-stream disconnect.
+      // Observe cancellation without depending on post-response signal behavior.
+      const reader = response.body!.getReader();
+      return new Response(
+        new ReadableStream({
+          async pull(controller) {
+            const { value, done } = await reader.read();
+            if (done) controller.close();
+            else controller.enqueue(value);
+          },
+          async cancel(reason) {
+            await reader.cancel(reason);
+            resolveDisconnected();
+          },
+        }),
+        { headers: response.headers },
+      );
+    },
+  );
+  let socket: Deno.TcpConn | undefined;
+  try {
+    const response = await fetch(`http://127.0.0.1:${server.addr.port}/small`);
+    assertEquals(await response.text(), "ok");
+    await within(success);
+    assertEquals(smallSignal?.aborted, false);
+    assertEquals(cache.metrics.readers, 0);
+    socket = await Deno.connect({
+      hostname: "127.0.0.1",
+      port: server.addr.port,
+    });
+    await socket.write(new TextEncoder().encode(
+      "GET /large HTTP/1.1\r\nHost: fixture\r\n\r\n",
+    ));
+    await within(socket.read(new Uint8Array(1024)));
+    assertEquals(cache.metrics.readers, 1);
+    socket.close();
+    socket = undefined;
+    await within(disconnected);
+    assertEquals(cache.metrics.readers, 0);
+    socket = await Deno.connect({
+      hostname: "127.0.0.1",
+      port: server.addr.port,
+    });
+    await socket.write(new TextEncoder().encode(
+      "GET /pending HTTP/1.1\r\nHost: fixture\r\n\r\n",
+    ));
+    await within(pending);
+    socket.close();
+    socket = undefined;
+    await within(aborted);
+  } finally {
+    socket?.close();
+    await cache.close();
+    await server.shutdown();
+    await Deno.remove(directory, { recursive: true });
+  }
+});
+
 Deno.test("verified HTTP fixture: corrupt retry, cold HEAD/304/range, encoding and stalled body", async () => {
   const directory = await Deno.makeTempDir();
   const text = "fixture content";

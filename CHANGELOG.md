@@ -4,6 +4,12 @@
 
 ### Patch Changes
 
+- Log cache metrics and service errors as compact single-line text, and attribute
+  cache hits/misses/coalescing, verification strategy and streaming verification
+  elapsed time to individual request paths without claiming shared hashing twice.
+- Enable Deno's corrected disconnect-only request abort behavior; retain cache
+  reader cleanup on EOF, cancellation, errors and timeouts.
+
 - Retire cancelled disk-cache fills before admitting replacement requests for the
   same hash, avoiding retries joining an already-aborted fill.
 - Bound discovery and source-hint callback waits by cancellation and deadlines,

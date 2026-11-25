@@ -1,6 +1,11 @@
 import { BLOB_CACHE_OPTIONS } from "../env.ts";
 import { isBlobHash, parseBlossomURL } from "../helpers/blossom.ts";
 import logger from "../helpers/debug.ts";
+import {
+  type BlobObservation,
+  logFields,
+  logValue,
+} from "../helpers/request-log.ts";
 import { onShutdown } from "../helpers/shutdown.ts";
 import {
   CacheAdmissionError,
@@ -172,6 +177,7 @@ export async function streamBlob(
     pubkey: string;
     blossomProxy?: string;
     signal?: AbortSignal;
+    observation?: BlobObservation;
   },
 ): Promise<Response | undefined> {
   if (!isBlobHash(sha256)) return undefined;
@@ -182,6 +188,7 @@ export async function streamBlob(
       method: init.method,
       headers: init.headers,
       signal: init.signal,
+      observation: init.observation,
       sources: async (signal) => {
         const urls = await findBlobURLs(sha256, servers, { ...init, signal });
         signal.throwIfAborted();
@@ -210,9 +217,9 @@ export async function streamBlob(
   } catch (error) {
     if (error instanceof CacheAdmissionError) {
       log(
-        "Admission rejected: %s; metrics=%o",
-        error.message,
-        verifiedBlobCache.metrics,
+        "Admission rejected: %s; %s",
+        logValue(error),
+        logFields(verifiedBlobCache.metrics),
       );
       return new Response("Verified cache busy; retry later.", {
         status: 503,
@@ -220,7 +227,7 @@ export async function streamBlob(
       });
     }
     if (init.signal?.aborted) throw error;
-    log("Cache fill failed: %s", error);
+    log("Cache fill failed: %s", logValue(error));
     return undefined;
   }
 }

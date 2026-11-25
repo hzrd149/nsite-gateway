@@ -7,6 +7,7 @@ import {
 } from "../env.ts";
 import type { ResolvedSiteAddress } from "../helpers/resolved-site.ts";
 import logger from "../helpers/debug.ts";
+import { logValue } from "../helpers/request-log.ts";
 import { onShutdown } from "../helpers/shutdown.ts";
 
 const log = logger.extend("cache");
@@ -25,7 +26,7 @@ onShutdown(async () => {
   try {
     await cache.close();
   } catch (err) {
-    log("Got error while closing cache KV store: ", err);
+    log("Got error while closing cache KV store: %s", logValue(err));
   }
 });
 

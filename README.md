@@ -101,12 +101,50 @@ block/inode overhead or the separate KV database; allow filesystem headroom.
 The default directory is ignored by Git. Docker Compose persists verified blobs
 under `/cache/verified-blobs` in the existing `nsite_cache` volume.
 
-Startup logs print limits; once per minute `[nsite:disk-cache] metrics` reports
+Startup logs print limits as compact `key=value` fields; once per minute
+`[nsite:disk-cache] metrics hits=12 misses=3 ...` reports
 hits, misses, fills, failures, corrupt responses, evictions, rejections, bytes,
 reservations, active fills, pending jobs, waiters and readers. Source failure logs
 include the hash prefix, source origin and reason; `DEBUG=nsite:*` enables admission diagnostics.
 `VERIFY_WORKER_POOL_MAX` is obsolete: the serve-first/background-worker path has
 been removed.
+
+Every request's response-ready log includes its host/path, HTTP status and:
+
+- `cache=hit|miss|coalesced|none`: a local entry, a request that started a fill
+  (or missed before admission failed), a waiter on another fill, or no cache lookup.
+- `verification=previously-verified|incremental-sha256|shared-fill|none`:
+  trusted disk bytes without rehashing, this request's fill hashing, waiting on
+  another fill without separate hashing, or no verification performed.
+- `verification_ms`: summed streaming body-read + incremental SHA-256 + temporary
+  file-write elapsed time across this request's own fill attempts, including failed
+  attempts. **Not CPU hash time.** Excludes queueing, source discovery, HTTP header
+  wait, file open/sync/promotion, hint updates and cleanup. Cancellation snapshots
+  work observed before the request leaves; remaining shared work is not attributed
+  to a departed request. Hits and coalesced-only requests report zero.
+- `cache_wait_ms`: wall time waiting for a missing entry, including queueing,
+  discovery, download/verification, retries and hints. This overlaps verification
+  time; do not add the two. `verified=true` means a verified entry was acquired,
+  not that response delivery succeeded.
+- `response_ready_ms`: middleware elapsed time until the response is ready,
+  excluding streaming delivery. HEAD, 304 and ranges use the same attribution;
+  non-blob routes report `none` and zero verification time.
+
+For example:
+
+```text
+  --> GET site.example/index.html 200 response_ready_ms=82.1 cache=miss verification=incremental-sha256 verification_ms=21.5 cache_wait_ms=64.8 verified=true
+  --> HEAD site.example/index.html 200 response_ready_ms=2.3 cache=hit verification=previously-verified verification_ms=0 cache_wait_ms=0 verified=true
+```
+
+The project opts into Deno's `no-legacy-abort` behavior in `deno.json`: request
+signals cancel only on disconnect, not successful delivery. For direct JSR
+launches outside this project pass `--unstable-no-legacy-abort`. Cache readers
+release pins on EOF, stream cancellation, errors or idle timeout, rather than
+relying on a success abort. Deno 2.9.8 delivers mid-stream disconnect cleanup
+through body cancellation; pre-response disconnects abort the request signal.
+See
+[Deno's migration guidance](https://docs.deno.com/go/unstable-no-legacy-abort).
 
 To test locally without changing `.env` or contacting production sites:
 
@@ -364,7 +402,7 @@ known to the gateway.
 You can run the published package without cloning this repository:
 
 ```sh
-deno run --unstable-kv --env-file=.env --allow-env --allow-net --allow-read --allow-write --allow-sys=uid jsr:@hzrd149/nsite-gateway
+deno run --unstable-kv --unstable-no-legacy-abort --env-file=.env --allow-env --allow-net --allow-read --allow-write --allow-sys=uid jsr:@hzrd149/nsite-gateway
 ```
 
 ## Running with Docker Compose

@@ -16,6 +16,7 @@ import { takeUntil, timer } from "rxjs";
 import { CURATION_PUBKEY, CURATION_REFRESH } from "../env.ts";
 import { CURRATION_NSEC, LOOKUP_RELAYS, NOSTR_RELAYS } from "../env.ts";
 import logger from "../helpers/debug.ts";
+import { logValue } from "../helpers/request-log.ts";
 import { formatAgeFromUnix } from "../helpers/format.ts";
 import { onShutdown } from "../helpers/shutdown.ts";
 import { eventLoader, eventStore, getUserOutboxes } from "./nostr.ts";
@@ -90,7 +91,7 @@ export function startCurationService(): void {
       );
     })
     .catch((error) => {
-      console.error("Failed to load curator mute list", error);
+      console.error(`Failed to load curator mute list: ${logValue(error)}`);
     });
 
   let muteSyncInFlight = false;
@@ -103,7 +104,9 @@ export function startCurationService(): void {
       await loadCurationMuteList();
       console.log("Refreshed curator mute list");
     } catch (error) {
-      console.error("Periodic curator mute list refresh failed", error);
+      console.error(
+        `Periodic curator mute list refresh failed: ${logValue(error)}`,
+      );
     } finally {
       muteSyncInFlight = false;
     }

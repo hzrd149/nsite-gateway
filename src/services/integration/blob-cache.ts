@@ -4,6 +4,12 @@ import { assertEquals, assertRejects } from "jsr:@std/assert";
 import { Hono } from "@hono/hono";
 import { PrivateKeySigner } from "applesauce-signers";
 import { createHash } from "node:crypto";
+import {
+  type BlobObservation,
+  newBlobObservation,
+  requestLog,
+  type RequestLogEnv,
+} from "../../helpers/request-log.ts";
 
 // Configure before importing the services; never open the operator's cache.
 Deno.env.set("CACHE_PATH", ":memory:");
@@ -198,7 +204,13 @@ Deno.test("blob source caches isolate publishers", async (t) => {
           return Promise.resolve(new Response("snapshot", { status: 200 }));
         };
         try {
-          const app = new Hono();
+          const observations: BlobObservation[] = [];
+          const app = new Hono<RequestLogEnv>();
+          app.use(requestLog);
+          app.use(async (c, next) => {
+            await next();
+            observations.push({ ...c.get("blobObservation") });
+          });
           app.all(
             "*",
             (c) => handleSiteRequest(c, { type: "snapshot", id: manifest.id }),
@@ -209,6 +221,9 @@ Deno.test("blob source caches isolate publishers", async (t) => {
           );
           assertEquals(response.status, 200);
           assertEquals(requests.length, 1);
+          assertEquals(observations[0].cache, "miss");
+          assertEquals(observations[0].verification, "incremental-sha256");
+          assertEquals(observations[0].verified, true);
           const url = new URL(requests[0]);
           assertEquals(url.origin, "https://proxy.example");
           assertEquals(url.searchParams.get("as"), manifest.pubkey);
@@ -239,6 +254,15 @@ Deno.test("blob source caches isolate publishers", async (t) => {
           assertEquals(custom404.status, 404);
           assertEquals(await custom404.text(), "snapshot");
           assertEquals(requests.length, 1);
+          assertEquals(observations.slice(1).map((item) => item.cache), [
+            "hit",
+            "hit",
+            "hit",
+          ]);
+          assertEquals(
+            observations.slice(1).map((item) => item.verification_ms),
+            [0, 0, 0],
+          );
         } finally {
           globalThis.fetch = originalFetch;
         }
@@ -312,12 +336,21 @@ Deno.test("blob source caches isolate publishers", async (t) => {
               signal: b.signal,
             }),
           );
+          const observation = newBlobObservation();
           const response = await streamBlob("f".repeat(64), [
             "https://fixture.example",
           ], {
             pubkey: alice,
+            observation,
           });
           assertEquals(response?.status, 503);
+          assertEquals(observation, {
+            cache: "miss",
+            verification: "none",
+            verification_ms: 0,
+            cache_wait_ms: 0,
+            verified: false,
+          });
           assertEquals(response?.headers.get("retry-after"), "5");
           assertEquals(response?.headers.get("cache-control"), "no-store");
           await response?.body?.cancel();
