@@ -4,113 +4,41 @@
 
 ### Minor Changes
 
-- Redesign the gateway's own pages as lightweight, zero-JavaScript monospace
-  pages. The homepage now explains nsites, offers a search box (`/search?q=`),
-  and lists recently updated and trending sites with 7-day visit sparklines and
-  featured authors. New `/sites` (paginated, sortable) and `/author/:npub` pages
-  replace the old `/status` table, which now redirects to `/sites`.
-- Render the homepage, site list and author pages from an in-memory directory
-  snapshot rebuilt every `DIRECTORY_REFRESH` seconds (default 600), served with
-  `ETag` and public caching. These requests no longer fetch profiles from
-  relays.
-- Make `/status/:address` cache-only: it never contacts relays or Blossom
-  servers. It now shows the last result for each path the gateway served, the
-  source server, bad-source marks for failing files, requested paths missing
-  from the manifest, and the relays the manifest was seen on.
-- Add `/health` (JSON) and a default `robots.txt` that keeps crawlers off
-  `/status/` and `/search`.
-- Link the gateway source and npanel (for hosting specific nsites) from the
-  homepage sidebar.
-- Show the author's name, npub and hex public key at the top of author pages.
-- Load author profiles for the site list reliably: lookups now wait for the
-  profile instead of returning the loader's placeholder, skip authors checked
-  recently, and continue in batches after startup and each relay sync until
-  every author has been looked up once.
-- Search sites by title, identifier and description, and authors by name or npub
-  prefix, from the in-memory directory without loading profiles. Pasting a site
-  address into the search box opens the site directly.
-- Make npubs, event ids, hashes, relay URLs and raw events on gateway pages
-  select in full with a single click or double-click, even when they wrap.
-- Count visits per day (kept 30 days) in addition to all-time totals. Counts are
-  buffered in memory, and `HEAD` requests and known bot user agents are skipped.
-- Show a temporary loading page when a browser opens a site page the gateway has
-  not fetched yet. The manifest and file are fetched in the background, the page
-  long-polls for progress (a few requests per load, with jittered backoff) and
-  reloads into the real site once it is ready, and a missing site or file shows
-  the real error page after the reload. At most 64 background fetches and 1024
-  held polls run at once; beyond that, requests wait for the real response as
-  before. The loading page is sent as `503` with `Retry-After`,
-  `Cache-Control: no-store` and `X-Robots-Tag: noindex` so nothing caches or
-  indexes it; crawlers and scripts keep waiting for the real response. Set
-  `SITE_LOADING_PAGE=false` to disable.
-- Skip the author's Blossom server list lookup when the requested file is
-  already verified on disk.
+- Redesign gateway pages with directory search, sortable site listings, author
+  pages, trending sites and daily visit counts. Listings use cached snapshots
+  instead of waiting on relays.
+- Add cache-only publisher diagnostics and a JSON `/health` endpoint. `/status`
+  now redirects to `/sites`.
+- Show a temporary, non-cacheable loading page for cold browser visits, with
+  bounded background fetching and progress polling. Crawlers and scripts still
+  wait for the real response; set `SITE_LOADING_PAGE=false` to disable.
+- Verify complete Blossom downloads before serving any bytes, using a bounded,
+  persistent disk cache shared by content hash. Support HEAD, ranges and
+  conditional requests from verified files.
+- Reconcile manifests and deletions with NIP-77 sync and paginated fallback. Add
+  configurable hydration deadlines, progress timeouts and historical lookback.
 
 ### Patch Changes
 
-- Reorganize documentation into a developer-focused README, contributing guide,
-  and dedicated configuration, deployment, caching and routing references.
-- Correct Compose setup guidance for the included Caddyfile and explicit
-  environment configuration.
+- Isolate Blossom discovery and source hints by publisher; validate manifest
+  hashes, source URLs and redirect destinations.
+- Fix cancelled-fill cleanup and bound discovery, downloads and idle readers.
+  Skip source discovery for verified cache hits.
+- Improve author profile loading, cache metrics and per-request timing logs.
+- Centralize Deno permissions and add an opt-in public-IPv4 network profile.
+- Expand cache and network integration tests, add a relay hydration benchmark,
+  and split configuration, deployment and contribution guides out of the README.
 
-- Log cache metrics and service errors as compact single-line text, and attribute
-  cache hits/misses/coalescing, verification strategy and streaming verification
-  elapsed time to individual request paths without claiming shared hashing twice.
-- Enable Deno's corrected disconnect-only request abort behavior; retain cache
-  reader cleanup on EOF, cancellation, errors and timeouts.
+### Upgrade Notes
 
-- Retire cancelled disk-cache fills before admitting replacement requests for the
-  same hash, avoiding retries joining an already-aborted fill.
-- Bound discovery and source-hint callback waits by cancellation and deadlines,
-  so stalled metadata operations cannot retain fill slots, reservations or pins
-  indefinitely or prevent cache shutdown.
-- Correct direct JSR permissions, cold conditional-request behavior and Docker
-  cache documentation.
-
-- Verify complete Blossom downloads with incremental SHA-256 in a bounded private
-  disk cache before serving any bytes. Remove preferred-source exemptions and
-  serve-first background verification; retain verified content across restarts.
-- Serve GET, HEAD, single ranges and conditional ETags from local verified files,
-  including cold requests, snapshots and custom 404s. Request identity encoding.
-- Bound fill concurrency, FIFO queue, waiters, readers, source attempts, file
-  metadata and disk reservations; return 503 with Retry-After on admission
-  exhaustion. Add configurable fill/stall deadlines, LRU read pins, restart temp
-  cleanup, exclusive directory locking and diagnostic metrics.
-- Add verified cache configuration and local fixture tests; persist verified
-  files in the Docker Compose cache volume. Replace VERIFY_WORKER_POOL_MAX with
-  disk-cache limits.
-
-- Bound each relay hydration run with a configurable total deadline
-  (`RELAY_SYNC_TIMEOUT`, default 120 seconds) and per-relay progress timeout
-  (`RELAY_SYNC_PROGRESS_TIMEOUT`, default 15 seconds). Keep events loaded before
-  cancellation and report partial hydration.
-- Add `RELAY_SYNC_LOOKBACK` to limit startup and periodic hydration to a rolling
-  date window; default `0` retains full history. Validate settings at startup
-  and support bounded-window comparisons in the hydration benchmark.
-- Hydrate and periodically reconcile nsite manifests and deletions concurrently
-  with Applesauce's NIP-77 sync loader and paginated fallback, including older
-  backfills and same-second events. Report per-relay coverage and duration,
-  avoid overlapping startup/periodic runs and duplicate live history requests,
-  and cancel hydration on shutdown.
-- Add a read-only public-relay hydration benchmark comparing the previous
-  one-shot loader with the sync loader using fresh pools and stores.
-- Include `wss://relay.ditto.pub` alongside Damus and Primal in the example
-  relay configuration and hydration benchmark defaults.
-- Isolate cached Blossom discovery URLs, proxy hints, preferred sources, and bad
-  sources by manifest publisher, including snapshot requests and status pages.
-  Legacy global source-cache entries are ignored.
-- Validate manifest SHA-256 hashes and Blossom HTTP(S) URLs, including cached
-  sources, to prevent local-file reads and URL overrides.
-- Follow up to five Blossom redirects with URL validation at every hop and a
-  shared timeout, preserving signed object-storage URLs and range requests.
-- Add opt-in public IPv4 network restrictions with `start:public:ipv4`. This
-  mode requires a public bind address, external IPv6 egress restrictions and
-  public upstream services; default launch modes retain unrestricted network
-  access.
-- Recommend Deno 2.9.8 or newer for native resolved-IP network permission
-  checks.
-- Centralize gateway and test permissions as reusable named sets in `deno.json`,
-  selected explicitly with `-P` by tasks or direct Deno commands.
+- Use Deno 2.9.8 or newer. The verified cache requires a private, owned local
+  directory; allow disk headroom beyond `BLOB_CACHE_BYTES` (default 1 GiB).
+  `VERIFY_WORKER_POOL_MAX` is replaced by `BLOB_CACHE_*` limits.
+- Cold requests now wait for complete verification; there is no unverified
+  fallback. Cache saturation returns 503 with `Retry-After`.
+- `start:public:ipv4` requires a public bind address, public upstream services
+  and external IPv6 egress restrictions. Default launch modes still allow
+  unrestricted networking. See [deployment](docs/deployment.md).
 
 ## 3.6.7
 
