@@ -25,7 +25,19 @@ const log = logger.extend("warmup");
 /** How long a warm-up may keep working after the browser got the loading page */
 const WARMUP_TIMEOUT = 60_000;
 
-const warmups = new WarmupRegistry({ maxSize: 1000, failureTtl: 15_000 });
+/**
+ * At most this many warm-ups run at once. A warm-up keeps working after the
+ * browser leaves, so the cap stops clients that hang up right away from
+ * queueing unbounded relay and Blossom work; over the cap, requests fall back
+ * to the blocking path and must hold their connection like before.
+ */
+const MAX_RUNNING_WARMUPS = 64;
+
+const warmups = new WarmupRegistry({
+  maxSize: 1000,
+  maxRunning: MAX_RUNNING_WARMUPS,
+  failureTtl: 15_000,
+});
 
 /** Registry key for one path of one site */
 export function siteWarmupKey(
@@ -78,12 +90,13 @@ export function getSiteWarmupFailure(key: string): WarmupOutcome | undefined {
 /**
  * Starts (or joins) a background fetch of the manifest and the file for this
  * path. It runs on its own timeout, not the request's signal, so it keeps
- * filling the cache after the browser has received the loading page.
+ * filling the cache after the browser has received the loading page. Returns
+ * undefined when too many warm-ups are already running.
  */
 export function warmSiteFile(
   site: ResolvedSiteAddress,
   pathname: string,
-): WarmupJob {
+): WarmupJob | undefined {
   const key = siteWarmupKey(site, pathname);
   return warmups.start(key, async (setStage) => {
     const signal = AbortSignal.timeout(WARMUP_TIMEOUT);
@@ -110,7 +123,12 @@ export function warmSiteFile(
         },
       );
       await response?.body?.cancel();
-      return response && response.status < 500 ? "ready" : "unavailable";
+      if (!response) return "unavailable";
+      // A busy verified cache (503) is not a failure of this site: let the
+      // reload take the normal path and receive the cache's own retry answer.
+      return response.status < 500 || response.status === 503
+        ? "ready"
+        : "unavailable";
     } catch (error) {
       log("Warm-up of %s failed: %s", key, logValue(error));
       return "unavailable";

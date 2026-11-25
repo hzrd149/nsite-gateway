@@ -34,12 +34,15 @@
 - Count visits per day (kept 30 days) in addition to all-time totals. Counts are
   buffered in memory, and `HEAD` requests and known bot user agents are skipped.
 - Show a temporary loading page when a browser opens a site page the gateway has
-  not fetched yet. The manifest and file are fetched in the background, the
-  page reports progress and reloads into the real site once it is ready, and a
-  missing site or file shows the real error page after the reload. The loading
-  page is sent as `503` with `Retry-After`, `Cache-Control: no-store` and
-  `X-Robots-Tag: noindex` so nothing caches or indexes it; crawlers and scripts
-  keep waiting for the real response. Set `SITE_LOADING_PAGE=false` to disable.
+  not fetched yet. The manifest and file are fetched in the background, the page
+  long-polls for progress (a few requests per load, with jittered backoff) and
+  reloads into the real site once it is ready, and a missing site or file shows
+  the real error page after the reload. At most 64 background fetches and 1024
+  held polls run at once; beyond that, requests wait for the real response as
+  before. The loading page is sent as `503` with `Retry-After`,
+  `Cache-Control: no-store` and `X-Robots-Tag: noindex` so nothing caches or
+  indexes it; crawlers and scripts keep waiting for the real response. Set
+  `SITE_LOADING_PAGE=false` to disable.
 - Skip the author's Blossom server list lookup when the requested file is
   already verified on disk.
 

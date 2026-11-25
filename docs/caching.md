@@ -99,6 +99,26 @@ This is independent of `CACHE_TIME` (server-side caching) and
 known to the gateway. Directory pages use `DIRECTORY_REFRESH` for HTTP
 freshness.
 
+## Loading page
+
+When a browser navigates to a page whose manifest or file is not yet cached, the
+gateway waits up to 400 ms and then answers with a temporary loading page while
+it keeps fetching in the background. The page long-polls the same URL for
+progress (the gateway holds each poll until the next step, at most 25 seconds)
+and reloads into the site once it is ready; if the site or file is missing, the
+reload shows the real error page.
+
+The loading page is sent as `503 Service Unavailable` with `Retry-After: 2`,
+`Cache-Control: no-store` and `X-Robots-Tag: noindex`, so browsers, CDNs and
+search engines treat it as temporary and never store or index it. Crawlers,
+scripts, subresource and range requests never receive it and wait for the real
+response instead.
+
+At most 64 background fetches and 1024 held progress polls run at once; past
+those limits, navigations wait for the real response as if the loading page were
+disabled. Polls never start work. Set `SITE_LOADING_PAGE=false` to disable the
+loading page entirely.
+
 ## Metrics and request logs
 
 Startup logs print limits as compact `key=value` fields. Once per minute,

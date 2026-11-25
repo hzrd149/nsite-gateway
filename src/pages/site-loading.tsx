@@ -11,31 +11,50 @@ const STAGE_MESSAGES: Record<WarmupStage, string> = {
   blob: "Downloading and verifying the page from Blossom…",
 };
 
-// Polls the same URL for warm-up progress and reloads once it has finished.
-// A finished failure reloads too: the gateway then renders the real error.
+// Long-polls the same URL for warm-up progress. The server holds each poll
+// until the stage changes or the job finishes, and the page always waits at
+// least a jittered second between polls (backing off on errors), so even a
+// misbehaving server cannot drive a tab past ~1 request per second. When the
+// job is done, or a cache in front of the gateway answers with the real page,
+// it reloads after a random delay so many waiting tabs do not reload in
+// lockstep. A finished failure reloads too: the gateway then renders the real
+// error page.
 const POLL_SCRIPT = `
 (() => {
   const messages = ${JSON.stringify(STAGE_MESSAGES)};
   const status = document.getElementById("stage");
   const slow = document.getElementById("slow");
   const started = Date.now();
+  let stage = document.documentElement.dataset.stage;
+  let failures = 0;
+  const jitter = (ms) => ms + Math.random() * ms;
+  const reload = () => setTimeout(() => location.reload(), Math.random() * 1000);
   async function poll() {
-    const late = Date.now() - started > 60000;
-    if (late) slow.hidden = false;
+    if (Date.now() - started > 60000) slow.hidden = false;
+    let wait = jitter(1000);
     try {
       const res = await fetch(location.href, {
-        headers: { ${JSON.stringify(LOADING_POLL_HEADER)}: "1" },
+        headers: { ${JSON.stringify(LOADING_POLL_HEADER)}: stage },
         cache: "no-store",
       });
-      if (res.ok) {
-        const state = await res.json();
-        if (state.done) return location.reload();
-        if (messages[state.stage]) status.textContent = messages[state.stage];
+      const type = res.headers.get("content-type") || "";
+      if (res.ok && !type.includes("application/json")) return reload();
+      if (!res.ok) throw new Error(res.status);
+      const state = await res.json();
+      if (state.done) return reload();
+      failures = 0;
+      if (Object.hasOwn(messages, state.stage)) {
+        stage = state.stage;
+        status.textContent = messages[stage];
       }
-    } catch {}
-    setTimeout(poll, late ? 3000 : 1000);
+      if (state.retry > 0) wait = jitter(Math.min(state.retry, 60) * 1000);
+    } catch {
+      failures++;
+      wait = jitter(Math.min(30000, 1000 * 2 ** failures));
+    }
+    setTimeout(poll, wait);
   }
-  setTimeout(poll, 1000);
+  setTimeout(poll, jitter(500));
 })();
 `;
 
@@ -47,13 +66,13 @@ type SiteLoadingProps = {
 /** Temporary page shown while a cold site is fetched in the background */
 export const SiteLoading: FC<SiteLoadingProps> = ({ hostname, stage }) => {
   return (
-    <html lang="en">
+    <html lang="en" data-stage={stage}>
       <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta name="robots" content="noindex" />
         <noscript>
-          <meta http-equiv="refresh" content="3" />
+          <meta http-equiv="refresh" content="10" />
         </noscript>
         <title>Loading {hostname}…</title>
         <style dangerouslySetInnerHTML={{ __html: css }} />

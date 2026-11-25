@@ -45,6 +45,26 @@ import {
 /** How long a cold navigation waits before falling back to the loading page */
 const LOADING_GRACE_MS = 400;
 
+/** Longest a progress poll is held open waiting for the next change */
+const POLL_HOLD_MS = 25_000;
+
+/**
+ * Most progress polls held open at once. Past this, polls are answered right
+ * away with a longer retry hint so idle connections stay bounded.
+ */
+const MAX_HELD_POLLS = 1024;
+
+/** Retry hint in seconds for polls answered without being held */
+const POLL_RETRY_SECONDS = 10;
+
+let heldPolls = 0;
+
+const POLL_HEADERS = {
+  "Cache-Control": "no-store",
+  "X-Content-Type-Options": "nosniff",
+  "X-Robots-Tag": "noindex",
+};
+
 /** Headers that keep the loading page out of every cache and search index */
 const LOADING_HEADERS = {
   "Retry-After": "2",
@@ -94,13 +114,37 @@ async function handleLoadingPage(
   if (request.method !== "GET") return undefined;
   const key = siteWarmupKey(site, url.pathname);
 
-  // Progress polls from the loading page; never start work from a poll.
-  if (request.headers.has(LOADING_POLL_HEADER)) {
+  // Progress polls from the loading page. A poll never starts work: it only
+  // waits on an existing job, so its cost is a map lookup and an idle socket.
+  const poll = request.headers.get(LOADING_POLL_HEADER);
+  if (poll !== null) {
     const job = getSiteWarmup(key);
+    // Long poll: hold until the job finishes or moves past the stage the page
+    // already shows, so each tab makes a handful of requests per load
+    // instead of one per second.
+    if (job && job.outcome === undefined && job.stage === poll) {
+      if (heldPolls >= MAX_HELD_POLLS) {
+        return c.json(
+          { stage: job.stage, retry: POLL_RETRY_SECONDS },
+          200,
+          POLL_HEADERS,
+        );
+      }
+      heldPolls++;
+      try {
+        await withinGrace(
+          Promise.race([job.done, job.changed]),
+          POLL_HOLD_MS,
+          request.signal,
+        );
+      } finally {
+        heldPolls--;
+      }
+    }
     const body = job && job.outcome === undefined
       ? { stage: job.stage }
       : { done: true };
-    return c.json(body, 200, { "Cache-Control": "no-store" });
+    return c.json(body, 200, POLL_HEADERS);
   }
 
   if (!wantsLoadingPage(request)) return undefined;
@@ -111,7 +155,9 @@ async function handleLoadingPage(
 
   if (isSiteFileReady(site, url.pathname)) return undefined;
 
+  // Too many warm-ups running: wait for the real response like before.
   const job = warmSiteFile(site, url.pathname);
+  if (!job) return undefined;
   const outcome = await withinGrace(job.done, LOADING_GRACE_MS);
   if (outcome) return await warmupFailure(c, url.hostname, outcome);
 

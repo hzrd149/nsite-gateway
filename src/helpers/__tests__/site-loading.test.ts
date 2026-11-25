@@ -73,11 +73,46 @@ Deno.test("withinGrace returns undefined when the promise is slower", async () =
   assertEquals(await withinGrace(Promise.resolve("ok"), 50), "ok");
   const slow = new Promise<string>((resolve) => setTimeout(resolve, 50, "x"));
   assertEquals(await withinGrace(slow, 0), undefined);
+
+  // An aborted signal (client hung up) ends the wait early
+  const controller = new AbortController();
+  const held = withinGrace(slow, 60_000, controller.signal);
+  controller.abort();
+  assertEquals(await held, undefined);
   await slow;
 });
 
+Deno.test("WarmupRegistry caps running jobs", async () => {
+  const registry = new WarmupRegistry({
+    maxSize: 10,
+    maxRunning: 1,
+    failureTtl: 1000,
+  });
+  let finish!: () => void;
+  const run = () =>
+    new Promise<"ready">((resolve) => finish = () => resolve("ready"));
+
+  const a = registry.start("a", run)!;
+  assertEquals(registry.start("b", run), undefined);
+  // Joining the running job is still allowed at the cap
+  assertEquals(registry.start("a", run), a);
+
+  // Let the job's run() start so `finish` is assigned
+  await Promise.resolve();
+  finish();
+  await a.done;
+  assertEquals(
+    registry.start("b", () => Promise.resolve("ready"))?.stage,
+    "manifest",
+  );
+});
+
 Deno.test("WarmupRegistry deduplicates running jobs and tracks stages", async () => {
-  const registry = new WarmupRegistry({ maxSize: 10, failureTtl: 1000 });
+  const registry = new WarmupRegistry({
+    maxSize: 10,
+    maxRunning: 10,
+    failureTtl: 1000,
+  });
   let runs = 0;
   let finish!: () => void;
   const run = async (setStage: (stage: "servers" | "blob") => void) => {
@@ -88,27 +123,34 @@ Deno.test("WarmupRegistry deduplicates running jobs and tracks stages", async ()
     return "ready" as const;
   };
 
-  const a = registry.start("k", run);
+  const a = registry.start("k", run)!;
   const b = registry.start("k", run);
   assertEquals(a, b);
+  const changed = a.changed;
+  await changed;
   assertEquals(runs, 1);
   assertEquals(registry.get("k")?.stage, "servers");
+  assertEquals(registry.running, 1);
 
   finish();
   assertEquals(await a.done, "ready");
+  assertEquals(registry.running, 0);
   assertEquals(registry.get("k")?.outcome, "ready");
   assertEquals(registry.getFailure("k"), undefined);
 
   // A finished successful job is replaced so evicted blobs can be refetched
-  registry.start("k", run);
+  const c = registry.start("k", run)!;
+  await c.changed;
   assertEquals(runs, 2);
   finish();
+  await c.done;
 });
 
 Deno.test("WarmupRegistry remembers failures until the TTL expires", async () => {
   let now = 0;
   const registry = new WarmupRegistry({
     maxSize: 10,
+    maxRunning: 10,
     failureTtl: 1000,
     now: () => now,
   });
@@ -119,7 +161,7 @@ Deno.test("WarmupRegistry remembers failures until the TTL expires", async () =>
   };
   const throws = () => Promise.reject(new Error("boom"));
 
-  await registry.start("a", fail).done;
+  await registry.start("a", fail)!.done;
   assertEquals(registry.getFailure("a"), "no-manifest");
   registry.start("a", fail);
   assertEquals(runs, 1);
@@ -127,9 +169,9 @@ Deno.test("WarmupRegistry remembers failures until the TTL expires", async () =>
   now = 1001;
   assertEquals(registry.getFailure("a"), undefined);
   assertEquals(registry.get("a"), undefined);
-  await registry.start("a", fail).done;
+  await registry.start("a", fail)!.done;
   assertEquals(runs, 2);
 
-  assertEquals(await registry.start("b", throws).done, "unavailable");
+  assertEquals(await registry.start("b", throws)!.done, "unavailable");
   assertEquals(registry.getFailure("b"), "unavailable");
 });
