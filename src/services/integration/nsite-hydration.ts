@@ -15,12 +15,19 @@ const relays: string[] = [];
 let runs = 3;
 let deadline = 120_000;
 let timeout = 15_000;
+let lookback = 0;
 for (const arg of Deno.args) {
   if (arg.startsWith("--runs=")) runs = Number(arg.slice(7));
   else if (arg.startsWith("--deadline=")) deadline = Number(arg.slice(11));
   else if (arg.startsWith("--timeout=")) timeout = Number(arg.slice(10));
+  else if (arg.startsWith("--lookback=")) lookback = Number(arg.slice(11));
   else if (/^wss?:\/\//.test(arg)) relays.push(new URL(arg).href);
   else throw new Error(`Unknown argument: ${arg}`);
+}
+if (!Number.isSafeInteger(lookback) || lookback < 0) {
+  throw new Error(
+    "--lookback must be a non-negative integer in seconds (0 means all history)",
+  );
 }
 if (!Number.isInteger(runs) || runs < 1 || runs > 10) {
   throw new Error("--runs must be an integer from 1 to 10");
@@ -39,7 +46,10 @@ if (relays.length === 0) {
   );
 }
 const until = Math.floor(Date.now() / 1000);
-console.log(JSON.stringify({ relays, runs, deadline, timeout, until }));
+const since = lookback > 0 ? Math.max(0, until - lookback) : undefined;
+console.log(
+  JSON.stringify({ relays, runs, deadline, timeout, lookback, since, until }),
+);
 
 async function measure(method: "legacy" | "sync", trial: number) {
   // A new pool and empty store for every measurement: do not give the new
@@ -66,7 +76,11 @@ async function measure(method: "legacy" | "sync", trial: number) {
       const request = (filter: Filter) => {
         controller.signal.throwIfAborted();
         return lastValueFrom(
-          pool.request(relays, { ...filter, until }).pipe(
+          pool.request(relays, {
+            ...filter,
+            until,
+            ...(since === undefined ? {} : { since }),
+          }).pipe(
             takeUntil(fromEvent(controller.signal, "abort")),
             tap((event) => eventStore.add(event)),
             reduce((count) => count + 1, 0),
@@ -78,7 +92,9 @@ async function measure(method: "legacy" | "sync", trial: number) {
     } else {
       syncResult = await createNsiteSync({ eventStore, pool })(relays, {
         until,
+        since,
         timeout,
+        totalTimeout: deadline,
         signal: controller.signal,
       });
     }

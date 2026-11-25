@@ -30,8 +30,12 @@ export type NsiteSyncOptions = {
   signal?: AbortSignal;
   /** Fixed upper bound shared by both filters; defaults to the start of this run. */
   until?: number;
+  /** Inclusive lower bound shared by manifests and deletions; omitted means all history. */
+  since?: number;
   /** Per-relay progress timeout, not a deadline for the whole hydration. */
   timeout?: number;
+  /** Maximum wall-clock duration of both phases combined (default 120 seconds). */
+  totalTimeout?: number;
 };
 
 export type NsiteSyncResult = {
@@ -53,13 +57,49 @@ export function createNsiteSync(options: SyncLoaderOptions) {
   ): Promise<NsiteSyncResult> => {
     const started = performance.now();
     const until = options.until ?? Math.floor(Date.now() / 1000);
-    const signal = options.signal;
-    signal?.throwIfAborted();
+    const since = options.since;
+    if (
+      !Number.isSafeInteger(until) || until < 0 ||
+      (since !== undefined &&
+        (!Number.isSafeInteger(since) || since < 0 || since > until))
+    ) {
+      throw new RangeError(
+        "Sync requires integer Unix seconds with 0 <= since <= until",
+      );
+    }
+    const totalTimeout = options.totalTimeout ?? 120_000;
+    if (
+      !Number.isInteger(totalTimeout) || totalTimeout <= 0 ||
+      totalTimeout > 2_147_483_647
+    ) {
+      throw new RangeError(
+        "Total sync timeout must be between 1 and 2147483647 milliseconds",
+      );
+    }
+    options.signal?.throwIfAborted();
+    const deadline = new AbortController();
+    const signal = options.signal
+      ? AbortSignal.any([deadline.signal, options.signal])
+      : deadline.signal;
+    const timer = setTimeout(
+      () =>
+        deadline.abort(
+          new DOMException(
+            `Relay sync exceeded its ${totalTimeout}ms total deadline; hydration is partial`,
+            "TimeoutError",
+          ),
+        ),
+      totalTimeout,
+    );
 
     const load = (phase: NsiteSyncPhase) => {
       const run = loader({
         relays,
-        filter: { ...NSITE_SYNC_FILTERS[phase], until },
+        filter: {
+          ...NSITE_SYNC_FILTERS[phase],
+          until,
+          ...(since === undefined ? {} : { since }),
+        },
         timeout: options.timeout ?? 15_000,
         // The public gateway has no signing identity for relay authentication.
         waitForAuth: false,
@@ -69,8 +109,8 @@ export function createNsiteSync(options: SyncLoaderOptions) {
       // Abort must reject (rather than resolve with a misleading partial success).
       return lastValueFrom(
         new Observable<SyncLoaderStatus>((subscriber) => {
-          const abort = () => subscriber.error(signal!.reason);
-          signal?.addEventListener("abort", abort, { once: true });
+          const abort = () => subscriber.error(signal.reason);
+          signal.addEventListener("abort", abort, { once: true });
           const sub = run.status$.subscribe({
             next: (status) => {
               subscriber.next(status);
@@ -78,31 +118,37 @@ export function createNsiteSync(options: SyncLoaderOptions) {
             error: (error) => subscriber.error(error),
             complete: () => subscriber.complete(),
           });
-          if (signal?.aborted) abort();
+          if (signal.aborted) abort();
           return () => {
-            signal?.removeEventListener("abort", abort);
+            signal.removeEventListener("abort", abort);
             sub.unsubscribe();
           };
         }),
       );
     };
 
-    const [manifests, deletes] = await Promise.all([
-      load("manifests"),
-      load("deletes"),
-    ]);
-    const statuses = { manifests, deletes };
-    return {
-      manifests: manifests.loaded,
-      deletes: deletes.loaded,
-      elapsedMs: performance.now() - started,
-      complete: Object.values(statuses).every((status) =>
-        status.done &&
-        Object.values(status.relays).every((relay) =>
-          relay.state === "complete"
-        )
-      ),
-      statuses,
-    };
+    try {
+      const [manifests, deletes] = await Promise.all([
+        load("manifests"),
+        load("deletes"),
+      ]);
+      const statuses = { manifests, deletes };
+      return {
+        manifests: manifests.loaded,
+        deletes: deletes.loaded,
+        elapsedMs: performance.now() - started,
+        complete: Object.values(statuses).every((status) =>
+          status.done &&
+          Object.values(status.relays).every((relay) =>
+            relay.state === "complete"
+          )
+        ),
+        statuses,
+      };
+    } finally {
+      clearTimeout(timer);
+      // Also cancel the sibling phase if setup or an unexpected stream error throws.
+      deadline.abort();
+    }
   };
 }

@@ -22,6 +22,7 @@ import {
   NOSTR_RELAYS,
   OUTBOXES_STALE_TIME,
   PROFILES_STALE_TIME,
+  RELAY_SYNC_CONFIG,
   SERVERS_STALE_TIME,
 } from "../env.ts";
 import logger from "../helpers/debug.ts";
@@ -99,8 +100,15 @@ export function syncNsiteEvents(
   relays = NOSTR_RELAYS,
   options: NsiteSyncOptions = {},
 ) {
+  const until = options.until ?? Math.floor(Date.now() / 1000);
   return sync(relays, {
+    totalTimeout: RELAY_SYNC_CONFIG.totalTimeoutMs,
+    timeout: RELAY_SYNC_CONFIG.progressTimeoutMs,
+    ...(RELAY_SYNC_CONFIG.lookbackSeconds > 0
+      ? { since: Math.max(0, until - RELAY_SYNC_CONFIG.lookbackSeconds) }
+      : {}),
     ...options,
+    until,
     signal: options.signal
       ? AbortSignal.any([syncAbort.signal, options.signal])
       : syncAbort.signal,

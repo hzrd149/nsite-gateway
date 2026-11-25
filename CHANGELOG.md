@@ -4,6 +4,13 @@
 
 ### Patch Changes
 
+- Bound each relay hydration run with a configurable total deadline
+  (`RELAY_SYNC_TIMEOUT`, default 120 seconds) and per-relay progress timeout
+  (`RELAY_SYNC_PROGRESS_TIMEOUT`, default 15 seconds). Keep events loaded before
+  cancellation and report partial hydration.
+- Add `RELAY_SYNC_LOOKBACK` to limit startup and periodic hydration to a rolling
+  date window; default `0` retains full history. Validate settings at startup
+  and support bounded-window comparisons in the hydration benchmark.
 - Hydrate and periodically reconcile nsite manifests and deletions concurrently
   with Applesauce's NIP-77 sync loader and paginated fallback, including older
   backfills and same-second events. Report per-relay coverage and duration,

@@ -261,3 +261,96 @@ Deno.test("stalled relays time out while healthy relays finish", async () => {
     f.eventStore.dispose();
   }
 });
+
+Deno.test("date bounds apply inclusively to manifests and deletions on both loading methods", async () => {
+  for (const nip77 of [false, true]) {
+    const events = [
+      event(1, 9),
+      event(2, 10),
+      event(3, 20),
+      event(4, 21),
+      { ...event(5, 9), kind: 5, tags: [["k", "5128"]] },
+      { ...event(6, 10), kind: 5, tags: [["k", "5128"]] },
+      { ...event(7, 20), kind: 5, tags: [["k", "5128"]] },
+      { ...event(8, 21), kind: 5, tags: [["k", "5128"]] },
+    ];
+    const f = fixture({ "wss://a/": events }, nip77);
+    try {
+      const result = await createNsiteSync({
+        eventStore: f.eventStore,
+        ...f.methods,
+      })(["wss://a/"], { since: 10, until: 20 });
+      assertEquals(result.manifests, 2);
+      assertEquals(result.deletes, 2);
+      assert(result.complete);
+      const calls = nip77 ? f.syncs : f.requests;
+      assert(
+        calls.every(({ filter }) => filter.since === 10 && filter.until! <= 20),
+      );
+      assertEquals(
+        f.eventStore.getTimeline({ kinds: [5128] }).map((e) => e.created_at),
+        [20, 10],
+      );
+    } finally {
+      f.eventStore.dispose();
+    }
+  }
+});
+
+Deno.test("total deadline cancels both phases even while events keep arriving", async () => {
+  const eventStore = new EventStore({ verifyEvent: () => true });
+  let stopped = 0;
+  let nextId = 1;
+  const sync = createNsiteSync({
+    eventStore,
+    getSupported: () => of([]),
+    getMaxLimit: () => of(500),
+    request: () =>
+      new Observable<NostrEvent>((subscriber) => {
+        const timer = setInterval(() => subscriber.next(event(nextId++, 1)), 5);
+        return () => {
+          clearInterval(timer);
+          stopped++;
+        };
+      }),
+    sync: () => {
+      throw new Error("unexpected NIP-77");
+    },
+  });
+  try {
+    const error = await assertRejects(
+      () => sync(["wss://a/"], { timeout: 100, totalTimeout: 40 }),
+      DOMException,
+      "total deadline",
+    );
+    assertEquals(error.name, "TimeoutError");
+    assertEquals(stopped, 2);
+    assert(eventStore.getTimeline({ kinds: [5128] }).length > 0);
+  } finally {
+    eventStore.dispose();
+  }
+});
+
+Deno.test("invalid ranges and deadlines reject before starting relay work", async () => {
+  const f = fixture({});
+  const sync = createNsiteSync({ eventStore: f.eventStore, ...f.methods });
+  try {
+    for (
+      const options of [
+        { since: 20, until: 10 },
+        { since: -1 },
+        { since: 1.5 },
+        { until: NaN },
+        { totalTimeout: 0 },
+        { totalTimeout: Infinity },
+        { totalTimeout: 2_147_483_648 },
+      ]
+    ) {
+      await assertRejects(() => sync(["wss://a/"], options), RangeError);
+    }
+    assertEquals(f.requests.length, 0);
+    assertEquals(f.syncs.length, 0);
+  } finally {
+    f.eventStore.dispose();
+  }
+});

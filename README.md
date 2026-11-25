@@ -24,6 +24,9 @@ cp .env.example .env
 | `LOOKUP_RELAYS`          | `wss://user.kindpag.es,wss://purplepag.es` | Comma-separated relays used to look up a user's NIP-65 relay list (kind `10002`) and blossom server list (kind `10063`)                                                                                                                                                                                                                                      |
 | `NOSTR_RELAYS`           | _(none)_                                   | Extra relays added to every event query, supplemental to the user's own outbox relays                                                                                                                                                                                                                                                                        |
 | `RLEAY_SYNC_INTERVAL`    | `600`                                      | How often to re-check `NOSTR_RELAYS` for newer site manifest and delete events, in seconds. Set to `live` to keep a persistent relay subscription open instead of periodic sync                                                                                                                                                                              |
+| `RELAY_SYNC_TIMEOUT` | `120` | Maximum total duration of each startup or periodic hydration run, in seconds, including capability checks and both manifest/deletion phases. At the deadline, requests are cancelled and already loaded events are retained. |
+| `RELAY_SYNC_PROGRESS_TIMEOUT` | `15` | Per-relay progress timeout in seconds. A relay that stalls errors without discarding results from healthy relays. This is separate from the total deadline. |
+| `RELAY_SYNC_LOOKBACK` | `0` | Hydrate only this many seconds before each run's start time. `0` loads all available history. Applies to manifests and deletions; older sites may be absent from the index. |
 | `CACHE_RELAYS`           | _(auto-detect `ws://localhost:4869`)_      | Relays to persist all fetched events to (a local Nostr cache relay). Auto-detected if a relay is running on `localhost:4869`                                                                                                                                                                                                                                 |
 | `BLOSSOM_SERVERS`        | _(none)_                                   | Comma-separated fallback blossom servers used when a user has no `10063` event and the manifest has no `server` tags                                                                                                                                                                                                                                         |
 | `BLOSSOM_PROXY`          | _(auto-detect `http://localhost:24242`)_   | Optional upstream blossom proxy checked first for every blob (see [Blossom Proxy](#blossom-proxy)). Auto-detected if a proxy is running on `localhost:24242`                                                                                                                                                                                                 |
@@ -96,6 +99,26 @@ hydration boundary while the sync loader retrieves history, avoiding a second
 unrestricted historical request. Startup and periodic syncs cannot overlap;
 active hydration is cancelled on shutdown.
 
+To cap each hydration run at five minutes and only load the last 90 days:
+
+```sh
+RELAY_SYNC_TIMEOUT=300
+RELAY_SYNC_PROGRESS_TIMEOUT=30
+RELAY_SYNC_LOOKBACK=7776000
+```
+
+Timeouts must be positive whole seconds; lookback accepts non-negative whole
+seconds. Invalid settings fail startup rather than silently disabling limits.
+The time window has inclusive bounds, ending at the start of each run. It
+applies to startup hydration and periodic reconciliation, not the ongoing live
+subscription or on-demand lookups. A bounded window limits discovery, not
+just transfer: a valid site last published before the cutoff will not be
+preloaded. Events already in memory are not evicted when the window moves.
+Full history remains the default to preserve discovery of older sites. A total
+deadline logs partial hydration; the gateway continues serving events already
+loaded and later periodic runs can retry. In live mode, incomplete historical
+hydration is not automatically retried.
+
 ### Comparing relay hydration
 
 Run the read-only benchmark against the example public relays (Damus, Primal
@@ -105,6 +128,8 @@ and Ditto):
 deno task bench:hydration
 # Optional explicit relays and limits (milliseconds):
 deno task bench:hydration --runs=3 --timeout=15000 --deadline=120000 wss://relay.damus.io wss://relay.primal.net wss://relay.ditto.pub
+# Compare both loaders over the last 90 days:
+deno task bench:hydration --runs=3 --lookback=7776000
 ```
 
 It compares the previous sequential one-shot requests against the sync loader,

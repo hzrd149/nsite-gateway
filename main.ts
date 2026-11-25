@@ -9,6 +9,7 @@ import {
   NOSTR_RELAYS,
   NSITE_HOST,
   NSITE_PORT,
+  RELAY_SYNC_CONFIG,
   RLEAY_SYNC_INTERVAL,
 } from "./src/env.ts";
 import app from "./src/server.ts";
@@ -25,6 +26,17 @@ console.log(`Starting nsite gateway on http://${HOST}`);
 console.log(`lookup relays: ${formatList(LOOKUP_RELAYS)}`);
 console.log(`cache relays: ${formatList(CACHE_RELAYS)}`);
 console.log(`nostr relays: ${formatList(NOSTR_RELAYS)}`);
+console.log(
+  `relay sync: total timeout ${
+    RELAY_SYNC_CONFIG.totalTimeoutMs / 1000
+  }s, progress timeout ${
+    RELAY_SYNC_CONFIG.progressTimeoutMs / 1000
+  }s, lookback ${
+    RELAY_SYNC_CONFIG.lookbackSeconds > 0
+      ? `${RELAY_SYNC_CONFIG.lookbackSeconds}s`
+      : "all history"
+  }`,
+);
 console.log(`blossom servers: ${formatList(BLOSSOM_SERVERS)}`);
 console.log(`blossom proxy: ${BLOSSOM_PROXY || "none"}`);
 const verifierPool = getBlobVerifierPoolStats();
@@ -82,7 +94,12 @@ if (NOSTR_RELAYS && NOSTR_RELAYS.length > 0) {
         }
       }
     } catch (error) {
-      if (
+      if (error instanceof DOMException && error.name === "TimeoutError") {
+        console.warn(
+          "Relay sync stopped at its total deadline; keeping loaded events",
+          error.message,
+        );
+      } else if (
         !stopped &&
         !(error instanceof DOMException && error.name === "AbortError")
       ) console.error("Relay sync failed", error);
