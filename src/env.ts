@@ -180,3 +180,18 @@ if (!Number.isSafeInteger(DIRECTORY_REFRESH) || DIRECTORY_REFRESH < 10) {
     "DIRECTORY_REFRESH must be an integer number of seconds, at least 10",
   );
 }
+
+/** SQLite database for analytics, hit counts and other persistent stats */
+export const STATS_PATH = Deno.env.get("STATS_PATH")?.trim() ||
+  "./data/stats.db";
+
+/** How long daily stats and serve-log records are kept, in days */
+const statsRetention = Deno.env.get("STATS_RETENTION_DAYS")?.trim();
+export const STATS_RETENTION_DAYS = statsRetention
+  ? Number(statsRetention)
+  : 90;
+if (!Number.isSafeInteger(STATS_RETENTION_DAYS) || STATS_RETENTION_DAYS < 7) {
+  throw new Error(
+    "STATS_RETENTION_DAYS must be an integer number of days, at least 7",
+  );
+}
