@@ -26,9 +26,11 @@ import {
 import { NoBlossomServers } from "../pages/no-blossom-servers.tsx";
 import { PathNotFound } from "../pages/path-not-found.tsx";
 import { SiteNotFound } from "../pages/site-not-found.tsx";
+import { isBotUserAgent } from "../helpers/bots.ts";
 import { incrementHitCount } from "../services/analytics.ts";
 import { streamBlob } from "../services/blossom.ts";
 import { getManifest, getUserBlossomServers } from "../services/nostr.ts";
+import { recordServe } from "../services/site-telemetry.ts";
 
 function appendOnionLocation(
   headers: Headers,
@@ -80,6 +82,7 @@ export async function handleSiteRequest(
 
   const match = resolveManifestPath(manifest, url.pathname);
   if (!match) {
+    recordServe(site, url.pathname, { status: 404, result: "path-not-found" });
     const paths = [...getManifestPaths(manifest).keys()];
     return c.html(
       html`
@@ -95,8 +98,11 @@ export async function handleSiteRequest(
     );
   }
 
-  // Count hits for .html pages (including 404.html)
-  if (match.path.endsWith(".html")) {
+  // Count human page views of .html pages (including 404.html)
+  if (
+    method === "GET" && match.path.endsWith(".html") &&
+    !isBotUserAgent(request.headers.get("user-agent"))
+  ) {
     void incrementHitCount(manifest.pubkey, identifier);
   }
 
@@ -123,6 +129,7 @@ export async function handleSiteRequest(
 
   // If no servers are available, return a 404
   if (servers.length === 0) {
+    recordServe(site, match.path, { status: 404, result: "no-servers" });
     return c.html(
       html`
         <!DOCTYPE html>${<NoBlossomServers hostname={url.hostname} />}
@@ -137,14 +144,17 @@ export async function handleSiteRequest(
   if (range) requestHeaders.set("range", range);
 
   // Get an upstream stream from one of the servers
+  let source: string | undefined;
   const upstream = await streamBlob(match.sha256, servers, {
     method,
     headers: requestHeaders,
     pubkey: manifest.pubkey,
     blossomProxy: BLOSSOM_PROXY,
+    onSource: (server) => source = server,
   });
 
   if (!upstream) {
+    recordServe(site, match.path, { status: 502, result: "unavailable" });
     return new Response(
       "Bad Gateway: Unable to retrieve the requested file from storage servers.",
       {
@@ -195,6 +205,11 @@ export async function handleSiteRequest(
     : upstream.ok
     ? 200
     : upstream.status;
+  recordServe(site, match.is404 ? url.pathname : match.path, {
+    status,
+    result: match.is404 ? "path-not-found" : "served",
+    server: source,
+  });
   const body = method === "HEAD" ? null : upstream.body;
   return new Response(body, { status, headers });
 }

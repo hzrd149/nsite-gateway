@@ -264,6 +264,8 @@ export async function streamBlob(
     headers?: HeadersInit;
     pubkey: string;
     blossomProxy?: string;
+    /** Called with the source URL that delivered the blob */
+    onSource?: (server: string) => void;
   },
 ): Promise<Response | undefined> {
   if (!isBlobHash(sha256) || servers.length === 0) return undefined;
@@ -309,6 +311,7 @@ export async function streamBlob(
       if (response.status >= 200 && response.status < 300) {
         // Set the server as the current live server for the blob
         setBlobServer(pubkey, sha256, server).catch(() => {});
+        init.onSource?.(server);
 
         if (!response.body || init?.method === "HEAD") {
           return new Response(null, {

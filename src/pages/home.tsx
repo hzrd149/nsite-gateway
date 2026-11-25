@@ -1,187 +1,185 @@
-import type { Context } from "@hono/hono";
 import type { FC } from "@hono/hono/jsx";
-import { html } from "@hono/hono/html";
-import { neventEncode, npubEncode } from "applesauce-core/helpers";
-import { formatAgeFromUnix } from "../helpers/format.ts";
-import { formatNsiteSubdomain } from "../helpers/nsite-host.ts";
-import { buildIndexedSites } from "../helpers/site-index.ts";
-import { NAMED_SITE_MANIFEST_KIND } from "../helpers/site-manifest.ts";
-import { getCurationMutedPubkeys } from "../services/curation.ts";
-import { eventStore, getUserProfile } from "../services/nostr.ts";
-import { naddrEncode } from "applesauce-core/helpers";
+import type { Directory, DirectorySite } from "../helpers/directory.ts";
+import {
+  Age,
+  AuthorLink,
+  Chip,
+  formatCount,
+  formatDateTime,
+  type GatewayContext,
+  Layout,
+  pluralize,
+  SiteName,
+  Spark,
+  TopBar,
+} from "./layout.tsx";
 
-type HomeSite = {
-  key: string;
-  pubkey: string;
-  identifier: string;
-  title?: string;
-  description?: string;
-  pathCount: number;
-  createdAt: number;
-  hostname?: string;
-  href?: string;
-  npub: string;
-  authorName?: string;
-  snapshotCount: number;
-  latestSnapshotId?: string;
-  latestSnapshotCreatedAt?: number;
-};
+export type HomeTab = "recent" | "trending";
 
-async function getHomeSites(
-  host: string,
-  protocol: string,
-): Promise<HomeSite[]> {
-  const muted = getCurationMutedPubkeys();
-  const manifests = buildIndexedSites(eventStore.getTimeline({})).filter(
-    (site) => !muted.has(site.pubkey),
-  );
+const HOME_ROWS = 25;
 
-  const uniquePubkeys = new Set<string>();
-  for (const site of manifests) uniquePubkeys.add(site.pubkey);
+export const SiteRows: FC<{
+  sites: DirectorySite[];
+  directory: Directory;
+  gateway: GatewayContext;
+  showAuthor?: boolean;
+  showStatus?: boolean;
+  showSnapshots?: boolean;
+  showClient?: boolean;
+}> = ({ sites, directory, gateway, ...show }) => (
+  <>
+    {sites.map((site) => (
+      <tr key={site.key}>
+        <td class="wrap">
+          <SiteName site={site} gateway={gateway} />
+          {site.description && <span class="desc">{site.description}</span>}
+        </td>
+        {show.showAuthor !== false && (
+          <td>
+            <AuthorLink
+              author={directory.authors.get(site.pubkey)}
+              pubkey={site.pubkey}
+            />
+          </td>
+        )}
+        {show.showClient && (
+          <td>
+            {site.client
+              ? site.client.href
+                ? <a href={site.client.href}>{site.client.name}</a>
+                : site.client.name
+              : <span class="muted">—</span>}
+          </td>
+        )}
+        <td class="num">{site.pathCount}</td>
+        {show.showSnapshots && (
+          <td class="num">
+            {site.latestSnapshotStatus
+              ? <a href={site.latestSnapshotStatus}>{site.snapshotCount}</a>
+              : site.snapshotCount}
+          </td>
+        )}
+        <td>
+          <Spark values={site.dailyHits} />{" "}
+          <span class="num">{formatCount(site.recentHits)}</span>
+        </td>
+        <td class="num">
+          <Age unix={site.updatedAt} />
+        </td>
+        {show.showStatus && (
+          <td>
+            <a href={site.statusPath}>status</a>
+          </td>
+        )}
+      </tr>
+    ))}
+  </>
+);
 
-  const profileEntries = await Promise.all(
-    [...uniquePubkeys].map(async (pubkey) =>
-      [pubkey, await getUserProfile(pubkey)] as const
-    ),
-  );
-  const profiles = new Map(profileEntries);
+export const HomePage: FC<{
+  directory: Directory;
+  gateway: GatewayContext;
+  tab: HomeTab;
+  error?: string;
+  address?: string;
+}> = ({ directory, gateway, tab, error, address }) => {
+  const list = tab === "trending" ? directory.trending : directory.recent;
+  const rows = list.slice(0, HOME_ROWS);
+  const { stats } = directory;
 
-  const sites: HomeSite[] = [];
-
-  for (const site of manifests) {
-    const subdomain = formatNsiteSubdomain(site.pubkey, site.identifier);
-    const siteHostname = subdomain ? `${subdomain}.${host}` : undefined;
-    const profile = profiles.get(site.pubkey);
-    const latestSnapshot = site.snapshots[0];
-    sites.push({
-      key: site.key,
-      pubkey: site.pubkey,
-      identifier: site.identifier,
-      title: site.title,
-      description: site.description,
-      pathCount: site.pathCount,
-      createdAt: site.createdAt,
-      hostname: siteHostname,
-      href: siteHostname ? `${protocol}//${siteHostname}/` : undefined,
-      npub: npubEncode(site.pubkey),
-      authorName: profile?.display_name || profile?.name,
-      snapshotCount: site.snapshots.length,
-      latestSnapshotId: latestSnapshot?.id,
-      latestSnapshotCreatedAt: latestSnapshot?.createdAt,
-    });
-  }
-
-  return sites.sort((a, b) => {
-    if (b.createdAt !== a.createdAt) return b.createdAt - a.createdAt;
-    return a.key.localeCompare(b.key);
-  });
-}
-
-function pluralize(count: number, singular: string, plural: string): string {
-  return `${count} ${count === 1 ? singular : plural}`;
-}
-
-const SiteCard: FC<{ site: HomeSite }> = ({ site }) => {
-  const label = site.title || site.hostname || site.npub;
-  const statusAddress = site.identifier
-    ? naddrEncode({
-      pubkey: site.pubkey,
-      identifier: site.identifier,
-      kind: NAMED_SITE_MANIFEST_KIND,
-    })
-    : site.npub;
-  const statusHref = `/status/${statusAddress}`;
-  const snapshotHref = site.latestSnapshotId
-    ? `/status/${neventEncode({ id: site.latestSnapshotId })}`
-    : undefined;
   return (
-    <li class="site-card">
-      <div>
-        {site.href ? <a href={site.href}>{label}</a> : <span>{label}</span>}
-        {site.identifier
-          ? <span class="site-meta">&middot; {site.identifier}</span>
-          : null}
-      </div>
-      {site.description
-        ? <div class="site-description">{site.description}</div>
-        : null}
-      <div class="site-meta">
-        by {site.authorName || site.npub} &middot;{" "}
-        {pluralize(site.pathCount, "page", "pages")} &middot; updated{" "}
-        {formatAgeFromUnix(site.createdAt)} ago &middot; {site.snapshotCount > 0
-          ? (
-            <>
-              {pluralize(site.snapshotCount, "snapshot", "snapshots")}
-              {site.latestSnapshotCreatedAt
-                ? (
-                  <>
-                    {" "}&middot; latest snapshot{" "}
-                    {formatAgeFromUnix(site.latestSnapshotCreatedAt)} ago
-                  </>
-                )
-                : null}
-              {snapshotHref
-                ? (
-                  <>
-                    {" "}&middot; <a href={snapshotHref}>latest snapshot</a>
-                  </>
-                )
-                : null} &middot;{" "}
-            </>
-          )
-          : null}
-        <a href={statusHref}>status</a>
-      </div>
-    </li>
-  );
-};
-
-const HomePage: FC<{ sites: HomeSite[]; host: string }> = ({ sites, host }) => {
-  return (
-    <html lang="en">
-      <head>
-        <meta charset="utf-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <title>nsite gateway &middot; {host}</title>
-        <link rel="stylesheet" href="/styles.css" />
-      </head>
-      <body>
-        <main class="wide">
-          <header>
-            <h1>nsite gateway</h1>
-            <a href="/status">gateway status</a>
-            <p class="meta">
-              {pluralize(sites.length, "site", "sites")} hosted through {host}
-            </p>
-          </header>
-          {sites.length === 0
+    <Layout
+      title={`${gateway.host} · nsite gateway`}
+      description={`Index of ${
+        pluralize(stats.sites, "website")
+      } published on Nostr and served through ${gateway.host}.`}
+    >
+      <TopBar
+        gateway={gateway}
+        subtitle="Index of nostr websites"
+        address={address}
+      />
+      {error && <p class="error" role="alert">{error}</p>}
+      <div class="cols">
+        <div style="min-width:0">
+          <nav class="tabs" aria-label="Site lists">
+            {tab === "recent"
+              ? <span class="cur">recent</span>
+              : <a href="/">recent</a>}
+            {tab === "trending"
+              ? <span class="cur">trending</span>
+              : <a href="/?tab=trending">trending</a>}
+            <a class="end" href="/sites">
+              all {stats.sites.toLocaleString("en-US")} →
+            </a>
+          </nav>
+          {rows.length === 0
             ? (
-              <p class="empty-state">
-                No sites cached yet. Sites will appear here as they are made
-                available through this gateway.
+              <p class="muted">
+                {tab === "trending"
+                  ? "No visits recorded in the last 7 days yet."
+                  : "No sites known yet. Sites appear here as the gateway syncs them from relays or serves them."}
               </p>
             )
             : (
-              <ul class="site-list">
-                {sites.map((site) => <SiteCard key={site.key} site={site} />)}
-              </ul>
+              <div class="scroll">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>name</th>
+                      <th>author</th>
+                      <th class="num">files</th>
+                      <th>7d visits</th>
+                      <th class="num">modified (utc)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <SiteRows
+                      sites={rows}
+                      directory={directory}
+                      gateway={gateway}
+                    />
+                  </tbody>
+                </table>
+              </div>
             )}
-        </main>
-      </body>
-    </html>
+        </div>
+        <aside>
+          <h3>FEATURED AUTHORS</h3>
+          <ul>
+            {directory.featuredAuthors.map((author) => (
+              <li key={author.pubkey}>
+                <Chip pubkey={author.pubkey} label={author.label} />
+                <a href={`/author/${author.npub}`}>{author.label}</a>
+                <span class="n">{author.siteKeys.length}</span>
+              </li>
+            ))}
+          </ul>
+          <h3>PUBLISH YOUR OWN</h3>
+          <ul>
+            <li>
+              <a href="https://nsite.run/">nsite.run</a>
+              <span class="n">in the browser</span>
+            </li>
+            <li>
+              <a href="https://nsyte.run/">nsyte</a>
+              <span class="n">command line</span>
+            </li>
+          </ul>
+        </aside>
+      </div>
+      <p class="about">
+        An nsite is a static website whose file list is a signed Nostr event.
+        The files are stored on Blossom servers by their sha256 hash. This
+        gateway serves{" "}
+        <code>&lt;npub&gt;.{gateway.host}</code>: it finds the site's manifest,
+        fetches each file from the author's servers and checks its hash before
+        serving it. {pluralize(stats.sites, "site")} ·{" "}
+        {pluralize(stats.authors, "author")} ·{" "}
+        {pluralize(stats.snapshots, "snapshot")} · list built{" "}
+        {formatDateTime(directory.builtAt / 1000)} UTC ·{" "}
+        <a href="/health">health</a>
+      </p>
+    </Layout>
   );
 };
-
-export async function homeRoute(c: Context): Promise<Response> {
-  const url = new URL(c.req.url);
-  const sites = await getHomeSites(url.host, url.protocol);
-  return c.html(
-    html`
-      <!DOCTYPE html>${<HomePage sites={sites} host={url.host} />}
-    `,
-    200,
-    {
-      "Cache-Control": "no-store",
-    },
-  );
-}

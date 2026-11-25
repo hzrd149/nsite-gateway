@@ -14,7 +14,12 @@ import {
 import app from "./src/server.ts";
 import { onShutdown } from "./src/helpers/shutdown.ts";
 import { getBlobVerifierPoolStats } from "./src/services/blob-verifier-pool.ts";
+import { startAnalyticsService } from "./src/services/analytics.ts";
 import { startCurationService } from "./src/services/curation.ts";
+import {
+  rebuildDirectory,
+  startDirectoryService,
+} from "./src/services/directory.ts";
 import { subscribeNsiteEvents, syncNsiteEvents } from "./src/services/nostr.ts";
 
 function formatList(values: string[] | undefined, empty = "none") {
@@ -44,6 +49,8 @@ const server = Deno.serve(
 );
 
 startCurationService();
+startAnalyticsService();
+startDirectoryService();
 
 // Hydrate from nostr relays when set
 if (NOSTR_RELAYS && NOSTR_RELAYS.length > 0) {
@@ -53,6 +60,8 @@ if (NOSTR_RELAYS && NOSTR_RELAYS.length > 0) {
       console.log(
         `Found ${manifests} site manifest events and ${deletes} delete events from nostr relays`,
       );
+      // Show newly synced sites without waiting for the next refresh
+      void rebuildDirectory();
     })
     .catch((error) => {
       console.error("Failed to hydrate from nostr relays", error);

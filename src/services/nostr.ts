@@ -164,12 +164,20 @@ export async function syncSiteManifestDeletes(
   });
 }
 
+let lastRelaySync: number | undefined;
+
+/** Unix ms of the last completed relay sync (or last live event) */
+export function getLastRelaySync(): number | undefined {
+  return lastRelaySync;
+}
+
 export async function syncNsiteEvents(relays = NOSTR_RELAYS): Promise<{
   manifests: number;
   deletes: number;
 }> {
   const manifests = await syncSiteManifests(relays);
   const deletes = await syncSiteManifestDeletes(relays);
+  lastRelaySync = Date.now();
 
   return { manifests, deletes };
 }
@@ -191,7 +199,13 @@ export function subscribeNsiteEvents(relays = NOSTR_RELAYS): Subscription {
     },
   ).subscribe({
     next: (response) => {
+      if (typeof response === "string") {
+        // EOSE: initial sync with the relays is complete
+        lastRelaySync = Date.now();
+        return;
+      }
       eventStore.add(response);
+      lastRelaySync = Date.now();
     },
     error: (error) => {
       console.error("Live relay sync failed", error);

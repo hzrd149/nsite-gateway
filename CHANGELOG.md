@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+### Minor Changes
+
+- Redesign the gateway's own pages as lightweight, zero-JavaScript monospace
+  pages. The homepage now explains nsites, offers an address box (`/open`), and
+  lists recently updated and trending sites with 7-day visit sparklines and
+  featured authors. New `/sites` (paginated, sortable) and `/author/:npub`
+  pages replace the old `/status` table, which now redirects to `/sites`.
+- Render the homepage, site list and author pages from an in-memory directory
+  snapshot rebuilt every `DIRECTORY_REFRESH` seconds (default 600), served with
+  `ETag` and public caching. These requests no longer fetch profiles from relays.
+- Make `/status/:address` cache-only: it never contacts relays or Blossom
+  servers. It now shows the last result for each path the gateway served, the
+  source server, bad-source marks for failing files, requested paths missing
+  from the manifest, and the relays the manifest was seen on.
+- Add `/health` (JSON) and a default `robots.txt` that keeps crawlers off
+  `/status/` and `/open`.
+- Count visits per day (kept 30 days) in addition to all-time totals. Counts are
+  buffered in memory, and `HEAD` requests and known bot user agents are
+  skipped.
+
 ### Patch Changes
 
 - Isolate cached Blossom discovery URLs, proxy hints, preferred sources, and bad
