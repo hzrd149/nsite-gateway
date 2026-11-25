@@ -19,6 +19,8 @@
   from the manifest, and the relays the manifest was seen on.
 - Add `/health` (JSON) and a default `robots.txt` that keeps crawlers off
   `/status/` and `/search`.
+- Link the gateway source and npanel (for hosting specific nsites) from the
+  homepage sidebar.
 - Search sites by title, identifier and description, and authors by name or npub
   prefix, from the in-memory directory without loading profiles. Pasting a site
   address into the search box opens the site directly.

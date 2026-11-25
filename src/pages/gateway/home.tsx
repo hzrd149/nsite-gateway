@@ -13,6 +13,8 @@ export type HomeTab = "recent" | "trending";
 
 const HOME_ROWS = 25;
 const SOURCE_URL = "https://github.com/hzrd149/nsite-gateway";
+const NPANEL_URL =
+  "https://gitworkshop.dev/soapbox.pub/git.shakespeare.diy/npanel";
 
 export const HomePage: FC<{
   directory: Directory;
@@ -83,6 +85,10 @@ export const HomePage: FC<{
             <li>
               <a href={SOURCE_URL}>nsite-gateway</a>
               <span class="n">source</span>
+            </li>
+            <li>
+              <a href={NPANEL_URL}>npanel</a>
+              <span class="n">host chosen sites</span>
             </li>
           </ul>
         </aside>
