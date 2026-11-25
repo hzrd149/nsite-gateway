@@ -80,12 +80,17 @@ export async function markBadBlobSource(
   sha256: string,
   server: string,
   reason = "hash_mismatch",
+  signal?: AbortSignal,
 ) {
+  signal?.throwIfAborted();
   await setBadBlobSource(pubkey, sha256, server, reason);
 
+  signal?.throwIfAborted();
   const cached = await getBlobServer(pubkey, sha256);
+  signal?.throwIfAborted();
   if (cached === server) await clearBlobServer(pubkey, sha256);
 
+  signal?.throwIfAborted();
   await clearBlobServers(pubkey, sha256);
 }
 
@@ -100,13 +105,16 @@ async function markGoodBlobSource(
 export async function findBlobURLs(
   sha256: string,
   servers: string[],
-  options: { pubkey: string; blossomProxy?: string },
+  options: { pubkey: string; blossomProxy?: string; signal?: AbortSignal },
 ): Promise<string[]> {
   if (!isBlobHash(sha256)) return [];
-  const { pubkey, blossomProxy } = options;
+  const { pubkey, blossomProxy, signal } = options;
+  signal?.throwIfAborted();
   const cached = await getBlobServers(pubkey, sha256);
+  signal?.throwIfAborted();
   if (cached) {
     const filtered = await filterBadBlobURLs(pubkey, sha256, cached);
+    signal?.throwIfAborted();
     if (filtered.length !== cached.length) {
       await setBlobServers(pubkey, sha256, filtered);
     }
@@ -114,6 +122,7 @@ export async function findBlobURLs(
   }
 
   const availableServers = await filterBadServers(pubkey, sha256, servers);
+  signal?.throwIfAborted();
 
   const ordered: string[] = [];
   const seen = new Set<string>();
@@ -149,6 +158,7 @@ export async function findBlobURLs(
     ordered.push(url);
   }
 
+  signal?.throwIfAborted();
   await setBlobServers(pubkey, sha256, ordered);
   return ordered;
 }
@@ -172,24 +182,30 @@ export async function streamBlob(
       method: init.method,
       headers: init.headers,
       signal: init.signal,
-      sources: async () => {
-        const urls = await findBlobURLs(sha256, servers, init);
+      sources: async (signal) => {
+        const urls = await findBlobURLs(sha256, servers, { ...init, signal });
+        signal.throwIfAborted();
         const cached = await getBlobServer(pubkey, sha256);
+        signal.throwIfAborted();
         const preferred = cached && parseBlossomURL(cached) &&
             !(await isBadBlobSource(pubkey, sha256, cached))
           ? cached
           : undefined;
         // A preferred source is only an ordering hint, never a verification exemption.
+        signal.throwIfAborted();
         await clearBlobServer(pubkey, sha256);
         return preferred
           ? [preferred, ...urls.filter((url) => url !== preferred)]
           : urls;
       },
-      good: async (source) => {
+      good: async (source, signal) => {
+        signal.throwIfAborted();
         await markGoodBlobSource(pubkey, sha256, source);
+        signal.throwIfAborted();
         await setBlobServer(pubkey, sha256, source);
       },
-      bad: (source) => markBadBlobSource(pubkey, sha256, source),
+      bad: (source, signal) =>
+        markBadBlobSource(pubkey, sha256, source, "hash_mismatch", signal),
     });
   } catch (error) {
     if (error instanceof CacheAdmissionError) {

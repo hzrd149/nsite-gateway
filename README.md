@@ -76,6 +76,12 @@ fit inside `BLOB_CACHE_BYTES`; for full configured concurrency, budget at least
 `MAX_FILE_SIZE * BLOB_CACHE_FILLS`. Large and small files use the same FIFO:
 there are no size-specific lanes, and large fills can delay small cold requests.
 For large artifacts, increase both the quota and whole-fill timeout as needed.
+Discovery and source-hint waits also respect cancellation and the whole-fill
+deadline. Best-effort hint persistence additionally has a `BLOB_STALL_TIMEOUT_MS`
+deadline; late callback settlement cannot resume a retired fill. An already
+submitted KV operation may still complete, but cancellation checks prevent
+subsequent hint writes. Replacement requests for an aborted hash wait until its
+disk cleanup finishes before starting a new fill.
 Full queues, exhausted waiters/readers, and unavailable disk reservations return
 503 with `Retry-After: 5` and `Cache-Control: no-store`. Failed sources return 502
 when no verified copy is obtainable. There is no unverified fallback.
@@ -270,8 +276,10 @@ automatically.
 Served site files include strong ETags derived from the manifest's SHA-256 hash
 for that file. Changed bytes produce a new ETag; republishing unchanged files
 keeps the same ETag. Matching `If-None-Match` validators (including weak
-validators and lists) return `304 Not Modified` without fetching the blob, for
-GET and HEAD, including requests with Range. Custom 404 pages retain their 404
+validators and lists) return `304 Not Modified` for GET and HEAD, including
+requests with Range, only once a verified local copy exists. Cold conditional
+requests first fetch and verify the complete blob; warm checks need no upstream
+fetch. Custom 404 pages retain their 404
 status. `Last-Modified` consistently uses the manifest publication time.
 
 Set `SITE_CACHE_MAX_AGE` in the deployment environment to a non-negative integer
@@ -297,7 +305,7 @@ known to the gateway.
 You can run the published package without cloning this repository:
 
 ```sh
-deno run --unstable-kv --env-file=.env --allow-env --allow-net --allow-read --allow-write jsr:@hzrd149/nsite-gateway
+deno run --unstable-kv --env-file=.env --allow-env --allow-net --allow-read --allow-write --allow-sys=uid jsr:@hzrd149/nsite-gateway
 ```
 
 ## Running with Docker Compose
@@ -328,9 +336,11 @@ Once running, the gateway is accessible at `http://localhost:3000`.
 docker run --rm -it --name nsite -p 3000:3000 ghcr.io/hzrd149/nsite-gateway
 ```
 
-> **Note:** The default image CMD does not include `--unstable-kv` or
-> `--allow-write`, so Deno KV caching is inactive. Use a custom entrypoint or
-> the `docker compose` setup if you need persistent caching.
+The default image CMD enables `--unstable-kv` and the `gateway` permission set,
+including read/write access and `sys:uid` for cache-directory ownership checks.
+Both caches work in the container. To retain them when the container is removed,
+mount a volume and set `CACHE_PATH` and `BLOB_CACHE_DIR` within it, or use the
+included Docker Compose setup.
 
 ## Hostname Resolution
 

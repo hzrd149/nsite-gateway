@@ -10,6 +10,28 @@ import { hasMatchingIfNoneMatch } from "../helpers/http-cache.ts";
 export class CacheAdmissionError extends Error {}
 export class BlobIntegrityError extends Error {}
 
+/** Stop waiting, but observe late rejection and never run an already-aborted callback. */
+async function cancellable<T>(
+  run: () => Promise<T>,
+  signal?: AbortSignal,
+): Promise<T> {
+  let abort!: () => void;
+  const cancelled = new Promise<never>((_, reject) => {
+    abort = () => reject(signal?.reason ?? new Error("Aborted"));
+    if (signal?.aborted) abort();
+    else signal?.addEventListener("abort", abort, { once: true });
+  });
+  const operation = Promise.resolve().then(() => {
+    signal?.throwIfAborted();
+    return run();
+  });
+  try {
+    return await Promise.race([operation, cancelled]);
+  } finally {
+    signal?.removeEventListener("abort", abort);
+  }
+}
+
 export interface VerifiedCacheOptions {
   directory: string;
   quota: number;
@@ -38,6 +60,9 @@ interface Job {
   resolve: (ok: boolean) => void;
   reject: (error: unknown) => void;
   entry?: Entry;
+  retiring: boolean;
+  retired: Promise<void>;
+  retire: () => void;
 }
 export interface BlobRequest {
   publisher: string;
@@ -45,8 +70,8 @@ export interface BlobRequest {
   headers?: HeadersInit;
   signal?: AbortSignal;
   sources: (signal: AbortSignal) => Promise<string[]>;
-  good?: (source: string) => Promise<void>;
-  bad?: (source: string) => Promise<void>;
+  good?: (source: string, signal: AbortSignal) => Promise<void>;
+  bad?: (source: string, signal: AbortSignal) => Promise<void>;
 }
 
 /**
@@ -212,6 +237,7 @@ export class VerifiedBlobCache {
         this.releaseJobPin(job);
         if (this.jobs.get(job.hash) === job) this.jobs.delete(job.hash);
         this.metrics.active--;
+        job.retire();
         this.startJobs();
       });
     }
@@ -231,6 +257,8 @@ export class VerifiedBlobCache {
     });
     // A disconnected last waiter must not leave an unhandled rejection.
     void promise.catch(() => {});
+    let retire!: () => void;
+    const retired = new Promise<void>((resolve) => retire = resolve);
     const job: Job = {
       hash,
       publisher: request.publisher,
@@ -239,8 +267,14 @@ export class VerifiedBlobCache {
       promise,
       resolve,
       reject,
+      retiring: false,
+      retired,
+      retire,
       run: () => this.fill(hash, request, job),
     };
+    job.controller.signal.addEventListener("abort", () => {
+      job.retiring = true;
+    }, { once: true });
     this.jobs.set(hash, job);
     this.queue.push(job);
     this.metrics.pending = this.queue.length;
@@ -267,6 +301,8 @@ export class VerifiedBlobCache {
     } finally {
       signal?.removeEventListener("abort", abort);
       if (--job.waiters === 0) {
+        // Keep the hash occupied until all disk cleanup has actually finished.
+        job.retiring = true;
         this.releaseJobPin(job);
         const index = this.queue.indexOf(job);
         if (index !== -1) {
@@ -274,6 +310,7 @@ export class VerifiedBlobCache {
           this.metrics.pending = this.queue.length;
           this.jobs.delete(job.hash);
           job.resolve(false);
+          job.retire();
         }
         job.controller.abort();
       }
@@ -284,6 +321,28 @@ export class VerifiedBlobCache {
     if (job.waiters === 0 && job.entry) {
       job.entry.pins--;
       job.entry = undefined;
+    }
+  }
+
+  private async hint(
+    callback: BlobRequest["good"],
+    source: string,
+    fillSignal: AbortSignal,
+  ) {
+    if (!callback) return;
+    const controller = new AbortController();
+    const signal = AbortSignal.any([fillSignal, controller.signal]);
+    const timer = setTimeout(
+      () => controller.abort(new Error("Hint deadline")),
+      this.options.stallTimeout,
+    );
+    try {
+      await cancellable(() => callback(source, signal), signal);
+    } catch {
+      // Hints cannot hold verified bytes, temporary files or admission forever.
+    } finally {
+      clearTimeout(timer);
+      controller.abort();
     }
   }
 
@@ -303,10 +362,11 @@ export class VerifiedBlobCache {
         this.metrics.reserved += this.options.maxFileSize;
         reserved = true;
       });
-      const sources = (await request.sources(controller.signal)).slice(
-        0,
-        this.options.sources,
-      );
+      const sources = (await cancellable(() =>
+        request.sources(controller.signal), controller.signal)).slice(
+          0,
+          this.options.sources,
+        );
       for (const source of sources) {
         controller.signal.throwIfAborted();
         const attempt = new AbortController();
@@ -315,7 +375,8 @@ export class VerifiedBlobCache {
         const resetStall = () => {
           clearTimeout(stalled);
           stalled = setTimeout(
-            () => attempt.abort(new Error("Upstream stalled")),
+            () =>
+              attempt.abort(new Error("Upstream stalled")),
             this.options.stallTimeout,
           );
         };
@@ -354,7 +415,9 @@ export class VerifiedBlobCache {
             resetStall();
             const { value, done } = await reader.read();
             signal.throwIfAborted();
-            if (done) break;
+            if (done) {
+              break;
+            }
             size += value.byteLength;
             if (size > this.options.maxFileSize) {
               throw new Error("Blob exceeds MAX_FILE_SIZE");
@@ -388,27 +451,31 @@ export class VerifiedBlobCache {
             reserved = false;
           });
           // Source preferences are hints only; their persistence cannot affect bytes.
-          await request.good?.(source).catch(() => {});
+          await this.hint(request.good, source, controller.signal);
           return true;
         } catch (error) {
           this.metrics.failures++;
           if (error instanceof BlobIntegrityError) {
             this.metrics.corrupt++;
-            await request.bad?.(source).catch(() => {});
+            await this.hint(request.bad, source, controller.signal);
           }
           console.warn(
             `[nsite:disk-cache] fill ${hash.slice(0, 12)} from ${
               parseBlossomURL(source)?.origin ?? "invalid-url"
             } failed: ${error instanceof Error ? error.message : error}`,
           );
-          if (error instanceof CacheAdmissionError) throw error;
+          if (error instanceof CacheAdmissionError) {
+            throw error;
+          }
         } finally {
           clearTimeout(stalled);
           attempt.abort();
           await reader?.cancel().catch(() => {});
           try {
             file?.close();
-            if (created) await Deno.remove(temporary);
+            if (created) {
+              await Deno.remove(temporary);
+            }
           } catch (error) {
             // Keep the reservation charged and stop new fills until restart.
             this.broken = true;
@@ -446,7 +513,17 @@ export class VerifiedBlobCache {
       try {
         while (!entry) {
           request.signal?.throwIfAborted();
+          // A retired fill may have promoted verified bytes before cancellation.
+          entry = this.entries.get(hash);
+          if (entry) {
+            entry.pins++;
+            break;
+          }
           const job = this.jobs.get(hash) ?? this.newJob(hash, request);
+          if (job.retiring) {
+            await cancellable(() => job.retired, request.signal);
+            continue;
+          }
           try {
             entry = await this.wait(job, request.signal);
           } catch (error) {
@@ -455,9 +532,8 @@ export class VerifiedBlobCache {
               job.publisher === request.publisher
             ) throw error;
           }
-          // The job's finalizer may run after its promise wakes us up.
-          if (this.jobs.get(hash) === job) this.jobs.delete(hash);
           if (!entry && job.publisher === request.publisher) return undefined;
+          if (!entry) await cancellable(() => job.retired, request.signal);
           // A foreign publisher's failure never poisons this publisher's fill.
         }
       } finally {
@@ -601,12 +677,17 @@ export class VerifiedBlobCache {
     this.closed = true;
     for (const job of this.queue.splice(0)) {
       this.jobs.delete(job.hash);
+      job.retiring = true;
       job.resolve(false);
+      job.retire();
     }
     this.metrics.pending = 0;
     const jobs = [...this.jobs.values()];
-    for (const job of jobs) job.controller.abort();
-    await Promise.allSettled(jobs.map((job) => job.promise));
+    for (const job of jobs) {
+      job.retiring = true;
+      job.controller.abort();
+    }
+    await Promise.all(jobs.map((job) => job.retired));
     await this.mutation;
     for (const close of this.readClosers) close();
     this.lock.close();

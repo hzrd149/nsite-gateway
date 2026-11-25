@@ -1,6 +1,6 @@
 // Explicit integration suite: uses an isolated in-memory KV and mocked HTTP.
 // Run with `deno task test:blob-cache`.
-import { assertEquals } from "jsr:@std/assert";
+import { assertEquals, assertRejects } from "jsr:@std/assert";
 import { Hono } from "@hono/hono";
 import { PrivateKeySigner } from "applesauce-signers";
 import { createHash } from "node:crypto";
@@ -241,6 +241,41 @@ Deno.test("blob source caches isolate publishers", async (t) => {
           assertEquals(requests.length, 1);
         } finally {
           globalThis.fetch = originalFetch;
+        }
+      },
+    );
+    await t.step(
+      "cancelled hint continuation cannot clear newer source state",
+      async () => {
+        await resetCache();
+        await cached.setBlobServer(alice, hash, aliceURL);
+        await cached.setBlobServers(alice, hash, [aliceURL]);
+        const originalSet = cache.set.bind(cache);
+        let release!: () => void;
+        const held = new Promise<void>((resolve) => release = resolve);
+        cache.set = async (...args: Parameters<typeof cache.set>) => {
+          await held;
+          return originalSet(...args);
+        };
+        const abort = new AbortController();
+        const pending = markBadBlobSource(
+          alice,
+          hash,
+          aliceURL,
+          "hash_mismatch",
+          abort.signal,
+        );
+        try {
+          abort.abort();
+          release();
+          await assertRejects(() => pending);
+          // The already-submitted write may finish; subsequent invalidations must not.
+          assertEquals(await cached.getBlobServer(alice, hash), aliceURL);
+          assertEquals(await cached.getBlobServers(alice, hash), [aliceURL]);
+        } finally {
+          release();
+          cache.set = originalSet;
+          await pending.catch(() => {});
         }
       },
     );

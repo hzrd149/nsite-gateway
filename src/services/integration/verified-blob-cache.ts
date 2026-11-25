@@ -12,8 +12,28 @@ const sources = () => Promise.resolve(["https://fixture.example/blob"]);
 const request = { publisher: "alice", sources };
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((yes) => resolve = yes);
-  return { promise, resolve };
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((yes, no) => {
+    resolve = yes;
+    reject = no;
+  });
+  return { promise, resolve, reject };
+}
+async function within<T>(promise: Promise<T>): Promise<T> {
+  let timer!: ReturnType<typeof setTimeout>;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error("Regression: operation did not finish")),
+          1000,
+        );
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 async function fixture(
   run: (
@@ -457,3 +477,229 @@ Deno.test("verified cache: idle readers release pins and file descriptors", () =
     assertEquals(cache.metrics.readers, 0);
     await assertRejects(() => response!.text(), Error, "stalled");
   }, { quota: 200_000, maxFileSize: 200_000, stallTimeout: 10 }));
+
+Deno.test("verified cache: immediate replacement waits for aborted same-hash cleanup", () =>
+  fixture(async (cache) => {
+    const reading = deferred<void>();
+    const cleaning = deferred<void>();
+    const releaseCleanup = deferred<void>();
+    const originalRemove = Deno.remove;
+    let calls = 0;
+    globalThis.fetch = (_input, init) => {
+      if (++calls > 1) return Promise.resolve(new Response("verified"));
+      return Promise.resolve(
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              init?.signal?.addEventListener(
+                "abort",
+                () => controller.error(init.signal?.reason),
+                { once: true },
+              );
+            },
+            pull() {
+              reading.resolve();
+            },
+          }, { highWaterMark: 0 }),
+        ),
+      );
+    };
+    Deno.remove = async (path, options) => {
+      if (String(path).endsWith(".tmp")) {
+        cleaning.resolve();
+        await releaseCleanup.promise;
+      }
+      return originalRemove(path, options);
+    };
+    const abort = new AbortController();
+    const first = cache.response(hash("verified"), {
+      ...request,
+      signal: abort.signal,
+    });
+    let replacement: Promise<Response | undefined> | undefined;
+    try {
+      await within(reading.promise);
+      abort.abort();
+      await assertRejects(() => within(first));
+      await within(cleaning.promise);
+      replacement = cache.response(hash("verified"), request);
+      void replacement.catch(() => {});
+      // Even with two available fill slots, the hash must remain occupied.
+      assertEquals(calls, 1);
+      assertEquals(cache.metrics.active, 1);
+      assertEquals(cache.metrics.reserved, 256);
+      const cancelled = new AbortController();
+      const follower = cache.response(hash("verified"), {
+        ...request,
+        signal: cancelled.signal,
+      });
+      cancelled.abort();
+      await assertRejects(() => within(follower));
+      assertEquals(calls, 1);
+      assertEquals(cache.metrics.active, 1);
+      releaseCleanup.resolve();
+      assertEquals(await (await within(replacement))?.text(), "verified");
+      assertEquals(calls, 2);
+      assertEquals(cache.metrics.reserved, 0);
+    } finally {
+      abort.abort();
+      releaseCleanup.resolve();
+      await first.catch(() => {});
+      Deno.remove = originalRemove;
+      await replacement?.then(
+        (response) => response?.body?.cancel().catch(() => {}),
+        () => {},
+      );
+    }
+  }));
+
+Deno.test("verified cache: discovery deadline releases admission and ignores late settlement", () =>
+  fixture(async (cache) => {
+    const discovery = deferred<string[]>();
+    let signal!: AbortSignal;
+    let calls = 0;
+    globalThis.fetch = () => {
+      calls++;
+      return Promise.resolve(new Response("verified"));
+    };
+    const pending = cache.response(hash("verified"), {
+      ...request,
+      sources: (received) => {
+        signal = received;
+        return discovery.promise;
+      },
+    });
+    try {
+      await assertRejects(() => within(pending), Error, "Fill deadline");
+      assertEquals(signal.aborted, true);
+      assertEquals(cache.metrics.reserved, 0);
+      assertEquals(cache.metrics.active, 0);
+      discovery.resolve(["https://late.example"]);
+      assertEquals(
+        await (await within(cache.response(hash("verified"), request)))?.text(),
+        "verified",
+      );
+      assertEquals(calls, 1); // Late discovery never starts an abandoned fetch.
+    } finally {
+      discovery.resolve([]);
+      await pending.catch(() => {});
+    }
+  }, { fillTimeout: 25 }));
+
+Deno.test("verified cache: stalled good/bad hints are bounded and release promotion pins", () =>
+  fixture(async (cache) => {
+    const good = deferred<void>();
+    const bad = deferred<void>();
+    const signals: AbortSignal[] = [];
+    let calls = 0;
+    globalThis.fetch = () =>
+      Promise.resolve(new Response(++calls === 1 ? "corrupt" : "verified"));
+    const pending = cache.response(hash("verified"), {
+      ...request,
+      sources: () =>
+        Promise.resolve(["https://bad.example", "https://good.example"]),
+      bad: (_source, signal) => {
+        signals.push(signal);
+        return bad.promise;
+      },
+      good: (_source, signal) => {
+        signals.push(signal);
+        return good.promise;
+      },
+    });
+    try {
+      assertEquals(await (await within(pending))?.text(), "verified");
+      assertEquals(signals.map((signal) => signal.aborted), [true, true]);
+      assertEquals(cache.metrics.reserved, 0);
+      assertEquals(cache.metrics.active, 0);
+      // A leaked promotion pin would prevent this one-entry cache from evicting.
+      globalThis.fetch = () => Promise.resolve(new Response("replacement"));
+      assertEquals(
+        await (await within(cache.response(hash("replacement"), request)))
+          ?.text(),
+        "replacement",
+      );
+      assertEquals(cache.metrics.evictions, 1);
+      good.reject(new Error("late good rejection"));
+      bad.reject(new Error("late bad rejection"));
+      await within(cache.close());
+    } finally {
+      good.resolve();
+      bad.resolve();
+      await pending.catch(() => {});
+    }
+  }, { entries: 1, stallTimeout: 10 }));
+
+Deno.test("verified cache: shutdown cancels hung discovery and pre/post-promotion hints", async () => {
+  for (const phase of ["sources", "good", "bad"] as const) {
+    await fixture(async (cache, directory, options) => {
+      const entered = deferred<void>();
+      const hung = deferred<never>();
+      let signal!: AbortSignal;
+      const callback = (received: AbortSignal) => {
+        signal = received;
+        entered.resolve();
+        return hung.promise;
+      };
+      globalThis.fetch = () =>
+        Promise.resolve(new Response(phase === "bad" ? "corrupt" : "verified"));
+      const pending = cache.response(hash("verified"), {
+        ...request,
+        sources: phase === "sources" ? callback : sources,
+        good: phase === "good"
+          ? (_source, received) => callback(received)
+          : undefined,
+        bad: phase === "bad"
+          ? (_source, received) => callback(received)
+          : undefined,
+      });
+      void pending.catch(() => {});
+      try {
+        await within(entered.promise);
+        await within(cache.close()); // Must not wait for the callbacks' own settlement.
+        await within(pending.catch(() => {}));
+        assertEquals(signal.aborted, true);
+        assertEquals(cache.metrics.active, 0);
+        assertEquals(cache.metrics.waiters, 0);
+        assertEquals(cache.metrics.reserved, 0);
+        assertEquals(
+          [...Deno.readDirSync(directory)].some((file) =>
+            file.name.endsWith(".tmp")
+          ),
+          false,
+        );
+        hung.reject(new Error(`late ${phase} rejection`));
+        // Shutdown must release its directory lock as well as its fill slots.
+        const reopened = new VerifiedBlobCache(options);
+        await reopened.close();
+      } finally {
+        hung.reject(new Error("test cleanup"));
+        await pending.catch(() => {});
+      }
+    });
+  }
+});
+
+Deno.test("verified cache: whole-fill deadline also bounds post-promotion persistence", () =>
+  fixture(async (cache) => {
+    const hint = deferred<void>();
+    globalThis.fetch = () => Promise.resolve(new Response("verified"));
+    let signal!: AbortSignal;
+    const response = cache.response(hash("verified"), {
+      ...request,
+      good: (_source, received) => {
+        signal = received;
+        return hint.promise;
+      },
+    });
+    try {
+      assertEquals(await (await within(response))?.text(), "verified");
+      assertEquals(signal.aborted, true);
+      assertEquals(cache.metrics.active, 0);
+      assertEquals(cache.metrics.reserved, 0);
+      await within(cache.close());
+    } finally {
+      hint.resolve();
+      await response.catch(() => {});
+    }
+  }, { fillTimeout: 100, stallTimeout: 2000 }));

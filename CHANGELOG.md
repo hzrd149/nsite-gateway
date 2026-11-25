@@ -4,6 +4,14 @@
 
 ### Patch Changes
 
+- Retire cancelled disk-cache fills before admitting replacement requests for the
+  same hash, avoiding retries joining an already-aborted fill.
+- Bound discovery and source-hint callback waits by cancellation and deadlines,
+  so stalled metadata operations cannot retain fill slots, reservations or pins
+  indefinitely or prevent cache shutdown.
+- Correct direct JSR permissions, cold conditional-request behavior and Docker
+  cache documentation.
+
 - Verify complete Blossom downloads with incremental SHA-256 in a bounded private
   disk cache before serving any bytes. Remove preferred-source exemptions and
   serve-first background verification; retain verified content across restarts.
