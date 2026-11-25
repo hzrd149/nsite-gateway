@@ -4,6 +4,19 @@
 
 ### Patch Changes
 
+- Verify complete Blossom downloads with incremental SHA-256 in a bounded private
+  disk cache before serving any bytes. Remove preferred-source exemptions and
+  serve-first background verification; retain verified content across restarts.
+- Serve GET, HEAD, single ranges and conditional ETags from local verified files,
+  including cold requests, snapshots and custom 404s. Request identity encoding.
+- Bound fill concurrency, FIFO queue, waiters, readers, source attempts, file
+  metadata and disk reservations; return 503 with Retry-After on admission
+  exhaustion. Add configurable fill/stall deadlines, LRU read pins, restart temp
+  cleanup, exclusive directory locking and diagnostic metrics.
+- Add verified cache configuration and local fixture tests; persist verified
+  files in the Docker Compose cache volume. Replace VERIFY_WORKER_POOL_MAX with
+  disk-cache limits.
+
 - Isolate cached Blossom discovery URLs, proxy hints, preferred sources, and bad
   sources by manifest publisher, including snapshot requests and status pages.
   Legacy global source-cache entries are ignored.

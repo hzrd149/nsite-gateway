@@ -14,17 +14,21 @@
     "check": "deno check main.ts",
     "test": "deno test -P=test",
     "test:blob-cache": "deno test -P=test-blob-cache --unstable-kv src/services/integration/blob-cache.ts",
+    "test:verified-cache": "deno test -P=test-blob-cache src/services/integration/verified-blob-cache.ts",
+    "test:verified-network": "deno test -P=test-verified-network src/services/integration/verified-network.ts",
     "test:network": "deno test -P=test-network src/helpers/integration/native-network.ts",
     "fmt": "deno fmt"
   },
   "permissions": {
     "gateway": {
+      "sys": ["uid"],
       "env": true,
       "net": true,
       "read": true,
       "write": true
     },
     "gateway-public-ipv4": {
+      "sys": ["uid"],
       "env": true,
       "net": {
         "allow": true,
@@ -60,7 +64,14 @@
       "read": true,
       "write": true
     },
+    "test-verified-network": {
+      "sys": ["uid"],
+      "net": ["127.0.0.1"],
+      "read": true,
+      "write": true
+    },
     "test-blob-cache": {
+      "sys": ["uid"],
       "env": true,
       "read": true,
       "write": true

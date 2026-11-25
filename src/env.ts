@@ -93,9 +93,28 @@ export const BLOB_BAD_SOURCE_TTL = Deno.env.get("BLOB_BAD_SOURCE_TTL")
   ? parseInt(Deno.env.get("BLOB_BAD_SOURCE_TTL")!, 10)
   : 24 * 60 * 60;
 
-export const VERIFY_WORKER_POOL_MAX = Deno.env.get("VERIFY_WORKER_POOL_MAX")
-  ? parseInt(Deno.env.get("VERIFY_WORKER_POOL_MAX")!, 10)
-  : navigator.hardwareConcurrency || 4;
+function positiveInteger(name: string, fallback: number) {
+  const raw = Deno.env.get(name);
+  const value = raw === undefined ? fallback : Number(raw);
+  if (!Number.isSafeInteger(value) || value < 1) {
+    throw new Error(`${name} must be a positive integer`);
+  }
+  return value;
+}
+
+export const BLOB_CACHE_OPTIONS = {
+  directory: Deno.env.get("BLOB_CACHE_DIR") || "./data/blobs",
+  quota: positiveInteger("BLOB_CACHE_BYTES", 1024 ** 3),
+  maxFileSize: MAX_FILE_SIZE,
+  fills: positiveInteger("BLOB_CACHE_FILLS", 2),
+  pending: positiveInteger("BLOB_CACHE_PENDING", 16),
+  waiters: positiveInteger("BLOB_CACHE_WAITERS", 32),
+  sources: positiveInteger("BLOB_CACHE_SOURCES", 3),
+  entries: positiveInteger("BLOB_CACHE_ENTRIES", 4096),
+  readers: positiveInteger("BLOB_CACHE_READERS", 128),
+  fillTimeout: positiveInteger("BLOB_FILL_TIMEOUT_MS", 10 * 60_000),
+  stallTimeout: positiveInteger("BLOB_STALL_TIMEOUT_MS", 30_000),
+};
 
 export const PUBLIC_DOMAIN = Deno.env.get("PUBLIC_DOMAIN");
 

@@ -1,14 +1,11 @@
-import { MAX_FILE_SIZE } from "../env.ts";
-import {
-  fetchBlossom,
-  isBlobHash,
-  parseBlossomURL,
-} from "../helpers/blossom.ts";
+import { BLOB_CACHE_OPTIONS } from "../env.ts";
+import { isBlobHash, parseBlossomURL } from "../helpers/blossom.ts";
 import logger from "../helpers/debug.ts";
+import { onShutdown } from "../helpers/shutdown.ts";
 import {
-  type VerificationResult,
-  verifyStreamInWorker,
-} from "./blob-verifier-pool.ts";
+  CacheAdmissionError,
+  VerifiedBlobCache,
+} from "./verified-blob-cache.ts";
 import {
   clearBadBlobSource,
   clearBlobServer,
@@ -22,8 +19,8 @@ import {
 } from "./cache.ts";
 
 const log = logger.extend("blossom");
-const invalidBlobLog = log.extend("invalid-blob");
-const activeVerifications = new Set<string>();
+export const verifiedBlobCache = new VerifiedBlobCache(BLOB_CACHE_OPTIONS);
+onShutdown(() => verifiedBlobCache.close());
 
 function extractDomain(serverUrl: string): string {
   try {
@@ -38,14 +35,6 @@ function buildBud10QueryParams(allServers: string[], pubkey?: string): string {
   for (const server of allServers) params.append("xs", extractDomain(server));
   if (pubkey) params.append("as", pubkey);
   return params.toString();
-}
-
-function getVerificationKey(
-  pubkey: string,
-  sha256: string,
-  server: string,
-): string {
-  return `${pubkey}:${sha256}:${server}`;
 }
 
 export async function isBadBlobSource(
@@ -108,74 +97,6 @@ async function markGoodBlobSource(
   await clearBadBlobSource(pubkey, sha256, server);
 }
 
-function scheduleBlobVerification(
-  pubkey: string,
-  sha256: string,
-  server: string,
-  stream: ReadableStream<Uint8Array>,
-  requestLog: (...data: unknown[]) => void,
-) {
-  const key = getVerificationKey(pubkey, sha256, server);
-  if (activeVerifications.has(key)) {
-    stream.cancel().catch(() => {});
-    return;
-  }
-
-  activeVerifications.add(key);
-
-  void verifyStreamInWorker(sha256, stream)
-    .then(async (result) => {
-      if (result.ok) {
-        await markGoodBlobSource(pubkey, sha256, server);
-        requestLog(`Verified ${server}: sha256 matched (${result.size} bytes)`);
-        return;
-      }
-
-      if (result.reason === "hash_mismatch") {
-        await markBadBlobSource(pubkey, sha256, server, result.reason);
-        const message =
-          `Invalid blob from ${server}: expected sha256=${sha256}, actual sha256=${
-            result.actualSha256 ?? "unknown"
-          }, size=${result.size ?? "unknown"}`;
-        invalidBlobLog(message);
-        console.error(`[nsite:blossom:invalid-blob] ${message}`);
-        requestLog(
-          `Rejected ${server}: sha256 mismatch (${
-            result.actualSha256 ?? "unknown"
-          })`,
-        );
-        return;
-      }
-
-      requestLog(`Verification failed for ${server}: ${result.reason}`);
-    })
-    .catch((error) => {
-      requestLog(
-        `Verifier crashed for ${server}: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-    })
-    .finally(() => {
-      activeVerifications.delete(key);
-    });
-}
-
-export function shouldVerifyBlobResponse(options: {
-  method?: string;
-  status: number;
-  hasRange: boolean;
-  hasPreferredSource: boolean;
-  server: string;
-  preferredSource?: string;
-}) {
-  if ((options.method ?? "GET") !== "GET") return false;
-  if (options.status !== 200) return false;
-  if (options.hasRange) return false;
-  if (!options.hasPreferredSource) return true;
-  return options.server !== options.preferredSource;
-}
-
 export async function findBlobURLs(
   sha256: string,
   servers: string[],
@@ -232,30 +153,6 @@ export async function findBlobURLs(
   return ordered;
 }
 
-function limitBodySize(
-  body: ReadableStream<Uint8Array>,
-  maxBytes: number,
-  onLimit: () => void,
-): ReadableStream<Uint8Array> {
-  let bytes = 0;
-
-  return body.pipeThrough(
-    new TransformStream<Uint8Array, Uint8Array>({
-      transform(chunk, controller) {
-        bytes += chunk.byteLength;
-        if (bytes > maxBytes) {
-          onLimit();
-          controller.error(
-            new Error(`Blob exceeds maximum allowed size of ${maxBytes} bytes`),
-          );
-          return;
-        }
-        controller.enqueue(chunk);
-      },
-    }),
-  );
-}
-
 export async function streamBlob(
   sha256: string,
   servers: string[],
@@ -264,108 +161,50 @@ export async function streamBlob(
     headers?: HeadersInit;
     pubkey: string;
     blossomProxy?: string;
+    signal?: AbortSignal;
   },
 ): Promise<Response | undefined> {
-  if (!isBlobHash(sha256) || servers.length === 0) return undefined;
-
+  if (!isBlobHash(sha256)) return undefined;
   const { pubkey } = init;
-  const requestLog = log.extend(sha256.slice(0, 6));
-  const urls = await findBlobURLs(sha256, servers, {
-    pubkey,
-    blossomProxy: init?.blossomProxy,
-  });
-  if (urls.length === 0) return undefined;
-
-  const cached = await getBlobServer(pubkey, sha256);
-  const preferred = cached && parseBlossomURL(cached) &&
-      !(await isBadBlobSource(pubkey, sha256, cached))
-    ? cached
-    : undefined;
-  const ordered = preferred
-    ? [preferred, ...urls.filter((u) => u !== preferred)]
-    : urls;
-  const hasPreferredSource = !!preferred;
-  const hasRange = new Headers(init?.headers).has("range");
-
-  for (const server of ordered) {
-    try {
-      const controller = new AbortController();
-      const response = await fetchBlossom(server, {
-        method: init?.method ?? "GET",
-        headers: init?.headers,
-        signal: AbortSignal.any([
-          AbortSignal.timeout(10_000),
-          controller.signal,
-        ]),
-      });
-
-      const length = response.headers.get("content-length");
-      if (length && Number(length) > MAX_FILE_SIZE) {
-        requestLog(`Rejected ${server}: file too large (${length})`);
-        controller.abort();
-        continue;
-      }
-
-      if (response.status >= 200 && response.status < 300) {
-        // Set the server as the current live server for the blob
-        setBlobServer(pubkey, sha256, server).catch(() => {});
-
-        if (!response.body || init?.method === "HEAD") {
-          return new Response(null, {
-            status: response.status,
-            statusText: response.statusText,
-            headers: response.headers,
-          });
-        }
-
-        // Limit the body size to the maximum allowed size
-        const body = limitBodySize(response.body, MAX_FILE_SIZE, () => {
-          requestLog(
-            `Aborted ${server}: stream exceeded ${MAX_FILE_SIZE} bytes`,
-          );
-          controller.abort();
-        });
-
-        let responseBody = body;
-        if (
-          shouldVerifyBlobResponse({
-            method: init?.method,
-            status: response.status,
-            hasRange,
-            hasPreferredSource,
-            server,
-            preferredSource: preferred,
-          })
-        ) {
-          const [clientBody, verifyBody] = body.tee();
-          responseBody = clientBody;
-          scheduleBlobVerification(
-            pubkey,
-            sha256,
-            server,
-            verifyBody,
-            requestLog,
-          );
-        }
-
-        // Return new response for the blob
-        return new Response(responseBody, {
-          status: response.status,
-          statusText: response.statusText,
-          headers: response.headers,
-        });
-      }
-    } catch (error) {
-      requestLog(
-        `Failed ${server}: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
+  try {
+    return await verifiedBlobCache.response(sha256, {
+      publisher: pubkey,
+      method: init.method,
+      headers: init.headers,
+      signal: init.signal,
+      sources: async () => {
+        const urls = await findBlobURLs(sha256, servers, init);
+        const cached = await getBlobServer(pubkey, sha256);
+        const preferred = cached && parseBlossomURL(cached) &&
+            !(await isBadBlobSource(pubkey, sha256, cached))
+          ? cached
+          : undefined;
+        // A preferred source is only an ordering hint, never a verification exemption.
+        await clearBlobServer(pubkey, sha256);
+        return preferred
+          ? [preferred, ...urls.filter((url) => url !== preferred)]
+          : urls;
+      },
+      good: async (source) => {
+        await markGoodBlobSource(pubkey, sha256, source);
+        await setBlobServer(pubkey, sha256, source);
+      },
+      bad: (source) => markBadBlobSource(pubkey, sha256, source),
+    });
+  } catch (error) {
+    if (error instanceof CacheAdmissionError) {
+      log(
+        "Admission rejected: %s; metrics=%o",
+        error.message,
+        verifiedBlobCache.metrics,
       );
+      return new Response("Verified cache busy; retry later.", {
+        status: 503,
+        headers: { "Retry-After": "5", "Cache-Control": "no-store" },
+      });
     }
-
-    // No server worked, clear cached server
-    clearBlobServer(pubkey, sha256).catch(() => {});
+    if (init.signal?.aborted) throw error;
+    log("Cache fill failed: %s", error);
+    return undefined;
   }
-
-  return undefined;
 }

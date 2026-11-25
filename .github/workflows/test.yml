@@ -21,3 +21,11 @@ jobs:
           deno-version: 2.9.8
       - name: Run unit tests
         run: deno task test --frozen
+      - name: Type check gateway
+        run: deno task check --frozen
+      - name: Verify disk cache and publisher isolation
+        run: |
+          deno task test:verified-cache --frozen
+          deno task test:blob-cache --frozen
+      - name: Verify real loopback HTTP fills
+        run: deno task test:verified-network --frozen

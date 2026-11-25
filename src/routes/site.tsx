@@ -9,10 +9,7 @@ import {
   ONION_HOST,
   SITE_CACHE_MAX_AGE,
 } from "../env.ts";
-import {
-  createStrongEtag,
-  hasMatchingIfNoneMatch,
-} from "../helpers/http-cache.ts";
+import { createStrongEtag } from "../helpers/http-cache.ts";
 import {
   formatNsiteSubdomain,
   formatSnapshotSubdomain,
@@ -23,7 +20,6 @@ import {
   getManifestServers,
   resolveManifestPath,
 } from "../helpers/site-manifest.ts";
-import { NoBlossomServers } from "../pages/no-blossom-servers.tsx";
 import { PathNotFound } from "../pages/path-not-found.tsx";
 import { SiteNotFound } from "../pages/site-not-found.tsx";
 import { incrementHitCount } from "../services/analytics.ts";
@@ -100,19 +96,8 @@ export async function handleSiteRequest(
     void incrementHitCount(manifest.pubkey, identifier);
   }
 
-  // If the request path is found, create a strong etag and check if the client has a matching if-none-match header
+  // Conditional responses are evaluated only after local bytes are verified.
   const etag = createStrongEtag(match.sha256);
-  if (!match.is404 && hasMatchingIfNoneMatch(request.headers, etag)) {
-    const headers = new Headers();
-    headers.set("ETag", etag);
-    headers.set(
-      "Cache-Control",
-      `public, max-age=${SITE_CACHE_MAX_AGE}, must-revalidate`,
-    );
-    headers.set("Last-Modified", getSiteLastModified(manifest.created_at));
-    appendOnionLocation(headers, site, manifest.pubkey, identifier);
-    return new Response(null, { status: 304, headers });
-  }
 
   const manifestServers = getManifestServers(manifest);
   const servers = mergeBlossomServers(
@@ -121,27 +106,22 @@ export async function handleSiteRequest(
     BLOSSOM_SERVERS,
   );
 
-  // If no servers are available, return a 404
-  if (servers.length === 0) {
-    return c.html(
-      html`
-        <!DOCTYPE html>${<NoBlossomServers hostname={url.hostname} />}
-      `,
-      404,
-    );
-  }
-
   // Create request headers for the blob request
   const requestHeaders = new Headers();
-  const range = request.headers.get("range");
-  if (range) requestHeaders.set("range", range);
+  if (!match.is404) {
+    for (const name of ["range", "if-range", "if-none-match"]) {
+      const value = request.headers.get(name);
+      if (value) requestHeaders.set(name, value);
+    }
+  }
 
-  // Get an upstream stream from one of the servers
+  // Fill if necessary, then serve only verified local bytes.
   const upstream = await streamBlob(match.sha256, servers, {
     method,
     headers: requestHeaders,
     pubkey: manifest.pubkey,
     blossomProxy: BLOSSOM_PROXY,
+    signal: request.signal,
   });
 
   if (!upstream) {
@@ -152,15 +132,12 @@ export async function handleSiteRequest(
       },
     );
   }
+  if (upstream.status >= 500) return upstream;
 
   // Create response headers
   const headers = new Headers();
-  // Prefer the MIME type implied by the request path. Blossom stores blobs
-  // without content types, so upstream servers guess -- often text/plain --
-  // and browsers refuse a stylesheet served as text/plain, leaving sites
-  // unstyled. The path extension is the only type signal the site author
-  // controls; fall back to the upstream header only when the path has no
-  // known extension.
+  // The manifest path determines MIME type; unknown extensions use the local
+  // cache's application/octet-stream rather than an untrusted source's headers.
   const upstreamContentType = upstream.headers.get("content-type");
   const pathMime = contentType(extname(match.path));
   if (pathMime) {
@@ -169,7 +146,7 @@ export async function handleSiteRequest(
     headers.set("content-type", upstreamContentType);
   }
 
-  // Copy response headers from the upstream response
+  // Length and ranges were computed from the verified local file.
   for (const name of ["content-length", "accept-ranges", "content-range"]) {
     const value = upstream.headers.get(name);
     if (value) headers.set(name, value);
@@ -188,13 +165,7 @@ export async function handleSiteRequest(
   appendOnionLocation(headers, site, manifest.pubkey, identifier);
 
   // Set response status
-  const status = match.is404
-    ? 404
-    : upstream.status === 206
-    ? 206
-    : upstream.ok
-    ? 200
-    : upstream.status;
+  const status = match.is404 ? 404 : upstream.status;
   const body = method === "HEAD" ? null : upstream.body;
   return new Response(body, { status, headers });
 }

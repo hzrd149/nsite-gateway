@@ -3,18 +3,29 @@
 import { assertEquals } from "jsr:@std/assert";
 import { Hono } from "@hono/hono";
 import { PrivateKeySigner } from "applesauce-signers";
+import { createHash } from "node:crypto";
 
 // Configure before importing the services; never open the operator's cache.
 Deno.env.set("CACHE_PATH", ":memory:");
 Deno.env.set("CACHE_RELAYS", "wss://cache.example");
 Deno.env.set("BLOSSOM_PROXY", "https://proxy.example/");
+const directory = await Deno.makeTempDir();
+Deno.env.set("BLOB_CACHE_DIR", directory);
+Deno.env.set("BLOB_CACHE_FILLS", "1");
+Deno.env.set("BLOB_CACHE_PENDING", "1");
+Deno.env.set("BLOB_CACHE_WAITERS", "2");
 const { cache, ...cached } = await import("../cache.ts");
-const { findBlobURLs, streamBlob, markBadBlobSource, isBadBlobSource } =
-  await import("../blossom.ts");
+const {
+  findBlobURLs,
+  streamBlob,
+  markBadBlobSource,
+  isBadBlobSource,
+  verifiedBlobCache,
+} = await import("../blossom.ts");
 
 const alice = "a".repeat(64);
 const bob = "b".repeat(64);
-const hash = "c".repeat(64);
+const hash = createHash("sha256").update("fixture").digest("hex");
 const aliceURL = `https://alice.example/${hash}`;
 const bobURL = `https://bob.example/${hash}`;
 const proxy = "https://proxy.example/";
@@ -78,7 +89,7 @@ Deno.test("blob source caches isolate publishers", async (t) => {
         const originalFetch = globalThis.fetch;
         globalThis.fetch = (input) => {
           requests.push(String(input));
-          return Promise.resolve(new Response(null, { status: 200 }));
+          return Promise.resolve(new Response("fixture", { status: 200 }));
         };
         try {
           await streamBlob(hash, ["https://bob.example"], {
@@ -93,7 +104,8 @@ Deno.test("blob source caches isolate publishers", async (t) => {
             pubkey: bob,
             method: "HEAD",
           });
-          assertEquals(requests, [bobURL, bobURL]);
+          // Verified bytes are now reusable globally without any upstream call.
+          assertEquals(requests, [bobURL]);
           assertEquals(await cached.getBlobServer(alice, hash), aliceURL);
         } finally {
           globalThis.fetch = originalFetch;
@@ -105,6 +117,7 @@ Deno.test("blob source caches isolate publishers", async (t) => {
       "failed fetches clear only the requesting publisher's preferred source",
       async () => {
         await resetCache();
+        const hash = "c".repeat(64);
         await cached.setBlobServer(alice, hash, aliceURL);
         await cached.setBlobServer(bob, hash, bobURL);
         const originalFetch = globalThis.fetch;
@@ -164,11 +177,12 @@ Deno.test("blob source caches isolate publishers", async (t) => {
         );
         const { handleSiteRequest } = await import("../../routes/site.tsx");
         const signer = new PrivateKeySigner();
+        const hash = createHash("sha256").update("snapshot").digest("hex");
         const manifest = await signer.signEvent({
           kind: 5128,
           created_at: Math.floor(Date.now() / 1000),
           content: "",
-          tags: [["path", "/file.txt", hash], [
+          tags: [["path", "/file.txt", hash], ["path", "/404.html", hash], [
             "server",
             "https://snapshot.example",
           ]],
@@ -181,7 +195,7 @@ Deno.test("blob source caches isolate publishers", async (t) => {
         const originalFetch = globalThis.fetch;
         globalThis.fetch = (input) => {
           requests.push(String(input));
-          return Promise.resolve(new Response(null, { status: 200 }));
+          return Promise.resolve(new Response("snapshot", { status: 200 }));
         };
         try {
           const app = new Hono();
@@ -204,12 +218,85 @@ Deno.test("blob source caches isolate publishers", async (t) => {
             requests[0],
           );
           assertEquals(await cached.getBlobServer(alice, hash), aliceURL);
+          const range = await app.request("https://gateway.example/file.txt", {
+            headers: { range: "bytes=0-3" },
+          });
+          assertEquals(range.status, 206);
+          assertEquals(await range.text(), "snap");
+          const conditional = await app.request(
+            "https://gateway.example/file.txt",
+            {
+              headers: { "if-none-match": `"${hash}"` },
+            },
+          );
+          assertEquals(conditional.status, 304);
+          const custom404 = await app.request(
+            "https://gateway.example/missing",
+            {
+              headers: { range: "bytes=0-3", "if-none-match": `"${hash}"` },
+            },
+          );
+          assertEquals(custom404.status, 404);
+          assertEquals(await custom404.text(), "snapshot");
+          assertEquals(requests.length, 1);
         } finally {
           globalThis.fetch = originalFetch;
         }
       },
     );
+    await t.step(
+      "admission exhaustion returns explicit retryable 503",
+      async () => {
+        const originalFetch = globalThis.fetch;
+        let started!: () => void;
+        const began = new Promise<void>((resolve) => started = resolve);
+        globalThis.fetch = (_input, init) => {
+          started();
+          return new Promise((_resolve, reject) => {
+            init?.signal?.addEventListener(
+              "abort",
+              () => reject(init.signal?.reason),
+              { once: true },
+            );
+          });
+        };
+        const a = new AbortController();
+        const b = new AbortController();
+        const requests: Promise<unknown>[] = [];
+        try {
+          requests.push(
+            streamBlob("d".repeat(64), ["https://fixture.example"], {
+              pubkey: alice,
+              signal: a.signal,
+            }),
+          );
+          await began;
+          requests.push(
+            streamBlob("e".repeat(64), ["https://fixture.example"], {
+              pubkey: alice,
+              signal: b.signal,
+            }),
+          );
+          const response = await streamBlob("f".repeat(64), [
+            "https://fixture.example",
+          ], {
+            pubkey: alice,
+          });
+          assertEquals(response?.status, 503);
+          assertEquals(response?.headers.get("retry-after"), "5");
+          assertEquals(response?.headers.get("cache-control"), "no-store");
+          await response?.body?.cancel();
+        } finally {
+          a.abort();
+          b.abort();
+          await Promise.allSettled(requests);
+          globalThis.fetch = originalFetch;
+        }
+      },
+    );
   } finally {
+    await verifiedBlobCache.close();
+    await Deno.remove(directory, { recursive: true });
     cache.close();
   }
 });

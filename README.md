@@ -30,9 +30,18 @@ cp .env.example .env
 | `MAX_FILE_SIZE`          | `128 MB`                                   | Maximum blob size to serve (e.g. `"2 MB"`). Enforced via `Content-Length` header and during streaming                                                                                                                                                                                                                                                        |
 | `CACHE_PATH`             | _(Deno default KV location)_               | File path for the persistent Deno KV store (e.g. `./data/cache`). Omit to use Deno's default location                                                                                                                                                                                                                                                        |
 | `CACHE_TIME`             | `3600`                                     | TTL in seconds for all KV cache entries (DNS lookups, blob server hints, user profiles)                                                                                                                                                                                                                                                                      |
-| `BLOB_SERVER_TTL`        | `604800`                                   | TTL in seconds for the preferred verified blob source cache (`["blob-server", sha256]`), allowing trusted sources to stick around longer than general cache entries                                                                                                                                                                                          |
-| `BLOB_BAD_SOURCE_TTL`    | `86400`                                    | TTL in seconds for a bad `(sha256, server)` verification result before that source is eligible to be retried for the blob                                                                                                                                                                                                                                    |
-| `VERIFY_WORKER_POOL_MAX` | `4`                                        | Maximum number of blob verification workers created dynamically to hash responses in parallel                                                                                                                                                                                                                                                                |
+| `BLOB_SERVER_TTL`        | `604800` | TTL in seconds for publisher-scoped preferred source hints; every cold fill is still verified |
+| `BLOB_BAD_SOURCE_TTL`    | `86400` | TTL in seconds for a bad `(publisher, sha256, server)` verification result |
+| `BLOB_CACHE_DIR` | `./data/blobs` | Private, owned directory for persistent verified bytes; one gateway process per directory |
+| `BLOB_CACHE_BYTES` | `1073741824` | Total logical blob-byte budget, including active temporary-file reservations (1 GiB) |
+| `BLOB_CACHE_FILLS` | `2` | Concurrent fills |
+| `BLOB_CACHE_PENDING` | `16` | Queued distinct-hash fills |
+| `BLOB_CACHE_WAITERS` | `32` | Total requests waiting for fills, including same-hash followers |
+| `BLOB_CACHE_SOURCES` | `3` | Maximum source attempts per fill |
+| `BLOB_CACHE_ENTRIES` | `4096` | Maximum completed-file LRU metadata entries |
+| `BLOB_CACHE_READERS` | `128` | Maximum simultaneous local response streams |
+| `BLOB_FILL_TIMEOUT_MS` | `600000` | Whole active fill timeout, including source retries (10 minutes) |
+| `BLOB_STALL_TIMEOUT_MS` | `30000` | Upstream inactivity timeout and local response-consumption idle timeout |
 | `PUBLIC_DOMAIN`          | _(none)_                                   | The gateway's own public domain. When set, it is used for constructing canonical site URLs on the homepage and status pages                                                                                                                                                                                                                                  |
 | `NSITE_HOST`             | `0.0.0.0`                                  | IP address the server binds to                                                                                                                                                                                                                                                                                                                               |
 | `NSITE_PORT`             | `3000`                                     | Port the server listens on                                                                                                                                                                                                                                                                                                                                   |
@@ -41,6 +50,85 @@ cp .env.example .env
 | `CURATION_REFRESH`       | `600` (10 min)                             | How often to re-fetch the curator mute list, in seconds                                                                                                                                                                                                                                                                                                      |
 
 ## Running with Deno
+
+### Verified disk cache
+
+Every cold request downloads the complete blob to a unique private temporary
+file, incrementally hashes it, and atomically promotes it only after SHA-256
+matches the manifest. No upstream bytes are served before verification, including
+for HEAD, ranges, and matching conditional requests. Preferred sources are only
+ordering hints. Verified content is shared by hash; discovery, bad-source, and
+preferred-source state remain publisher-scoped. A failed publisher's fill cannot
+permanently poison another publisher's retry.
+
+GET, HEAD, single byte ranges, strong ETags, weak `If-None-Match` comparisons,
+and strong `If-Range` work from verified local files. Unsupported/multipart ranges
+are ignored; unsatisfiable single ranges return 416. HEAD ignores Range.
+Custom 404s use the complete verified 404 file with status 404. Source requests
+use GET with `Accept-Encoding: identity`; explicitly encoded upstream responses
+are rejected. Response lengths come from the verified file, not upstream headers.
+Unknown-extension files use `application/octet-stream`.
+
+Admission is global FIFO, independent of client IP or forwarded headers.
+Each active fill reserves `MAX_FILE_SIZE` bytes before contacting sources, so even
+unknown-length streams cannot exceed the logical-byte quota. `MAX_FILE_SIZE` must
+fit inside `BLOB_CACHE_BYTES`; for full configured concurrency, budget at least
+`MAX_FILE_SIZE * BLOB_CACHE_FILLS`. Large and small files use the same FIFO:
+there are no size-specific lanes, and large fills can delay small cold requests.
+For large artifacts, increase both the quota and whole-fill timeout as needed.
+Full queues, exhausted waiters/readers, and unavailable disk reservations return
+503 with `Retry-After: 5` and `Cache-Control: no-store`. Failed sources return 502
+when no verified copy is obtainable. There is no unverified fallback.
+
+Completed files survive restart on a **trusted local volume** without rehashing.
+Use an owned mode-0700 directory under trusted parent directories; do not share it
+with another service or allow external modification. Startup rejects symlinks,
+hard links and unexpected entries, takes an exclusive process lock, deletes
+abandoned temporary files and trims to current limits. LRU order resets on
+restart. Active reads pin files against eviction; idle readers are closed.
+Failed unlink/accounting cleanup stops cache admission until restart rather than
+silently exceeding quota. The quota covers logical blob payloads, not filesystem
+block/inode overhead or the separate KV database; allow filesystem headroom.
+The default directory is ignored by Git. Docker Compose persists verified blobs
+under `/cache/verified-blobs` in the existing `nsite_cache` volume.
+
+Startup logs print limits; once per minute `[nsite:disk-cache] metrics` reports
+hits, misses, fills, failures, corrupt responses, evictions, rejections, bytes,
+reservations, active fills, pending jobs, waiters and readers. Source failure logs
+include the hash prefix, source origin and reason; `DEBUG=nsite:*` enables admission diagnostics.
+`VERIFY_WORKER_POOL_MAX` is obsolete: the serve-first/background-worker path has
+been removed.
+
+To test locally without changing `.env` or contacting production sites:
+
+```sh
+deno task check
+deno task test
+deno task test:blob-cache
+deno task test:verified-cache
+deno task test:verified-network
+```
+
+For normal local gateway use against existing sites (bind to loopback and use
+an isolated cache; existing `.env` relay/proxy settings are still loaded):
+
+```sh
+mkdir -p /tmp/opencode/nsite-local
+NSITE_HOST=127.0.0.1 NSITE_PORT=3000 \
+  CACHE_PATH=/tmp/opencode/nsite-local/cache.kv \
+  BLOB_CACHE_DIR=/tmp/opencode/nsite-local/blobs \
+  MAX_FILE_SIZE="128 MiB" BLOB_CACHE_BYTES=1073741824 \
+  deno task start
+```
+
+Then request a known site's hostname through the local gateway:
+
+```sh
+curl --resolve 'SITE_HOSTNAME:3000:127.0.0.1' \
+  'http://SITE_HOSTNAME:3000/PATH' -o /tmp/opencode/site-response
+```
+
+### Runtime
 
 Use **Deno 2.9.8 or newer**, preferably the latest patched stable release. This
 is the minimum recommended version for this gateway's native network-deny

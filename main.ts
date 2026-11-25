@@ -1,4 +1,4 @@
-#!/usr/bin/env -S deno run --unstable-kv --allow-env --allow-net --allow-read --allow-write
+#!/usr/bin/env -S deno run --unstable-kv --allow-env --allow-net --allow-read --allow-write --allow-sys=uid
 
 import {
   BLOSSOM_PROXY,
@@ -13,7 +13,7 @@ import {
 } from "./src/env.ts";
 import app from "./src/server.ts";
 import { onShutdown } from "./src/helpers/shutdown.ts";
-import { getBlobVerifierPoolStats } from "./src/services/blob-verifier-pool.ts";
+import { verifiedBlobCache } from "./src/services/blossom.ts";
 import { startCurationService } from "./src/services/curation.ts";
 import { subscribeNsiteEvents, syncNsiteEvents } from "./src/services/nostr.ts";
 
@@ -27,10 +27,14 @@ console.log(`cache relays: ${formatList(CACHE_RELAYS)}`);
 console.log(`nostr relays: ${formatList(NOSTR_RELAYS)}`);
 console.log(`blossom servers: ${formatList(BLOSSOM_SERVERS)}`);
 console.log(`blossom proxy: ${BLOSSOM_PROXY || "none"}`);
-const verifierPool = getBlobVerifierPoolStats();
-console.log(
-  `verify worker pool: ${verifierPool.activeWorkers} active, ${verifierPool.idleWorkers} idle, max ${verifierPool.maxWorkers}`,
-);
+console.log("verified disk cache:", verifiedBlobCache.options);
+const cacheMetricsTimer = setInterval(() => {
+  console.log("[nsite:disk-cache] metrics", verifiedBlobCache.metrics);
+}, 60_000);
+onShutdown(() => {
+  clearInterval(cacheMetricsTimer);
+  return Promise.resolve();
+});
 
 const server = Deno.serve(
   {

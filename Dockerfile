@@ -12,4 +12,4 @@ RUN deno cache --frozen --unstable-kv main.ts
 EXPOSE 3000
 ENV NSITE_PORT="3000"
 
-CMD ["run", "--frozen", "--cached-only", "--unstable-kv", "--allow-env", "--allow-net", "--allow-read", "--allow-write", "main.ts"]
+CMD ["run", "--frozen", "--cached-only", "--unstable-kv", "-P=gateway", "main.ts"]
