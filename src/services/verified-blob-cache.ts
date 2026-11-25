@@ -40,6 +40,8 @@ export interface VerifiedCacheOptions {
   fills: number;
   pending: number;
   waiters: number;
+  perFillWaiters: number;
+  queueTimeout: number;
   sources: number;
   entries: number;
   readers: number;
@@ -52,6 +54,7 @@ interface Entry {
   pins: number;
 }
 interface Job {
+  queueTimer?: ReturnType<typeof setTimeout>;
   verificationMs: number;
   verificationStarted?: number;
   verificationAttempted: boolean;
@@ -100,10 +103,15 @@ export class VerifiedBlobCache {
     pending: 0,
     waiters: 0,
     readers: 0,
+    readerWaiters: 0,
   };
   private entries = new Map<string, Entry>();
   private jobs = new Map<string, Job>();
   private queue: Job[] = [];
+  private publishers: string[] = [];
+  // Includes requests waiting for a retiring job, not just its current followers.
+  private hashWaiters = new Map<string, number>();
+  private readerQueue: Array<{ grant: () => void; cancel: () => void }> = [];
   private lock: Deno.FsFile;
   private mutation = Promise.resolve();
   private closed = false;
@@ -235,8 +243,13 @@ export class VerifiedBlobCache {
       !this.closed && this.metrics.active < this.options.fills &&
       this.queue.length
     ) {
-      const job = this.queue.shift()!;
-      this.metrics.pending = this.queue.length;
+      const publisher = this.publishers[0];
+      const job = this.queue.find((job) => job.publisher === publisher)!;
+      this.dequeue(job);
+      // Rotate after each dispatch, retaining FIFO order within a publisher.
+      if (this.publishers[0] === publisher) {
+        this.publishers.push(this.publishers.shift()!);
+      }
       this.metrics.active++;
       void job.run().then(job.resolve, job.reject).finally(() => {
         this.releaseJobPin(job);
@@ -246,6 +259,17 @@ export class VerifiedBlobCache {
         this.startJobs();
       });
     }
+  }
+
+  private dequeue(job: Job) {
+    clearTimeout(job.queueTimer);
+    const index = this.queue.indexOf(job);
+    if (index === -1) return;
+    this.queue.splice(index, 1);
+    if (!this.queue.some((other) => other.publisher === job.publisher)) {
+      this.publishers = this.publishers.filter((p) => p !== job.publisher);
+    }
+    this.metrics.pending = this.queue.length;
   }
 
   private newJob(hash: string, request: BlobRequest): Job {
@@ -283,7 +307,18 @@ export class VerifiedBlobCache {
       job.retiring = true;
     }, { once: true });
     this.jobs.set(hash, job);
+    if (!this.publishers.includes(job.publisher)) {
+      this.publishers.push(job.publisher);
+    }
     this.queue.push(job);
+    job.queueTimer = setTimeout(() => {
+      this.dequeue(job);
+      this.jobs.delete(hash);
+      job.controller.abort();
+      this.metrics.rejected++;
+      job.reject(new CacheAdmissionError("Fill queue deadline"));
+      job.retire();
+    }, this.options.queueTimeout);
     this.metrics.pending = this.queue.length;
     this.startJobs();
     return job;
@@ -313,8 +348,7 @@ export class VerifiedBlobCache {
         this.releaseJobPin(job);
         const index = this.queue.indexOf(job);
         if (index !== -1) {
-          this.queue.splice(index, 1);
-          this.metrics.pending = this.queue.length;
+          this.dequeue(job);
           this.jobs.delete(job.hash);
           job.resolve(false);
           job.retire();
@@ -328,6 +362,24 @@ export class VerifiedBlobCache {
     if (job.waiters === 0 && job.entry) {
       job.entry.pins--;
       job.entry = undefined;
+    }
+  }
+
+  private async waitRetired(job: Job, signal?: AbortSignal) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      this.metrics.rejected++;
+      controller.abort(new CacheAdmissionError("Retiring fill queue deadline"));
+    }, this.options.queueTimeout);
+    try {
+      await cancellable(
+        () => job.retired,
+        signal
+          ? AbortSignal.any([signal, controller.signal])
+          : controller.signal,
+      );
+    } finally {
+      clearTimeout(timer);
     }
   }
 
@@ -530,6 +582,11 @@ export class VerifiedBlobCache {
       if (this.metrics.waiters >= this.options.waiters) {
         this.reject("Fill waiters full");
       }
+      const followers = this.hashWaiters.get(hash) ?? 0;
+      if (followers >= this.options.perFillWaiters) {
+        this.reject("Per-fill waiters full");
+      }
+      this.hashWaiters.set(hash, followers + 1);
       this.metrics.waiters++;
       this.metrics.misses++;
       const waitingSince = performance.now();
@@ -554,7 +611,7 @@ export class VerifiedBlobCache {
             }
           }
           if (job.retiring) {
-            await cancellable(() => job.retired, request.signal);
+            await this.waitRetired(job, request.signal);
             continue;
           }
           try {
@@ -576,7 +633,7 @@ export class VerifiedBlobCache {
             }
           }
           if (!entry && job.publisher === request.publisher) return undefined;
-          if (!entry) await cancellable(() => job.retired, request.signal);
+          if (!entry) await this.waitRetired(job, request.signal);
           // A foreign publisher's failure never poisons this publisher's fill.
         }
       } finally {
@@ -584,6 +641,9 @@ export class VerifiedBlobCache {
           observation.cache_wait_ms = performance.now() - waitingSince;
         }
         this.metrics.waiters--;
+        const remaining = this.hashWaiters.get(hash)! - 1;
+        if (remaining) this.hashWaiters.set(hash, remaining);
+        else this.hashWaiters.delete(hash);
       }
     } else {
       this.metrics.hits++;
@@ -642,11 +702,8 @@ export class VerifiedBlobCache {
     if (request.method === "HEAD") {
       return new Response(null, { status, headers });
     }
-    if (this.metrics.readers >= this.options.readers) {
-      this.reject("Local reader limit reached");
-    }
+    await this.acquireReader(request.signal);
     entry.pins++;
-    this.metrics.readers++;
     let file: Deno.FsFile | undefined;
     let finished = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -661,6 +718,7 @@ export class VerifiedBlobCache {
       file?.close();
       entry.pins--;
       this.metrics.readers--;
+      this.readerQueue[0]?.grant();
       this.readClosers.delete(abort);
     };
     const abort = () => {
@@ -720,10 +778,54 @@ export class VerifiedBlobCache {
     }
   }
 
+  private async acquireReader(signal?: AbortSignal) {
+    signal?.throwIfAborted();
+    if (this.closed) this.reject("Disk cache shutting down");
+    if (this.metrics.readers < this.options.readers) {
+      this.metrics.readers++;
+      return;
+    }
+    if (this.readerQueue.length >= this.options.waiters) {
+      this.reject("Local reader queue full");
+    }
+    await new Promise<void>((resolve, reject) => {
+      const cleanup = () => {
+        clearTimeout(timer);
+        signal?.removeEventListener("abort", abort);
+        this.readerQueue.splice(this.readerQueue.indexOf(waiter), 1);
+        this.metrics.readerWaiters--;
+      };
+      const abort = () => {
+        cleanup();
+        reject(
+          signal?.reason ?? new CacheAdmissionError("Reader wait cancelled"),
+        );
+      };
+      const waiter = {
+        grant: () => {
+          cleanup();
+          this.metrics.readers++;
+          resolve();
+        },
+        cancel: abort,
+      };
+      const timer = setTimeout(() => {
+        cleanup();
+        this.metrics.rejected++;
+        reject(new CacheAdmissionError("Reader queue deadline"));
+      }, this.options.queueTimeout);
+      this.readerQueue.push(waiter);
+      this.metrics.readerWaiters++;
+      signal?.addEventListener("abort", abort, { once: true });
+    });
+  }
+
   async close() {
     if (this.closed) return;
     this.closed = true;
-    for (const job of this.queue.splice(0)) {
+    for (const waiter of [...this.readerQueue]) waiter.cancel();
+    for (const job of [...this.queue]) {
+      this.dequeue(job);
       this.jobs.delete(job.hash);
       job.retiring = true;
       job.resolve(false);

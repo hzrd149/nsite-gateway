@@ -138,8 +138,10 @@ Preferred sources and proxies never bypass blob verification.
 | `BLOB_CACHE_DIR`        | `./data/blobs`           | Private owned directory; one process per directory                                                                         |
 | `BLOB_CACHE_BYTES`      | `1073741824`             | Logical byte budget including active fill reservations (1 GiB)                                                             |
 | `BLOB_CACHE_FILLS`      | `2`                      | Concurrent fills                                                                                                           |
-| `BLOB_CACHE_PENDING`    | `16`                     | Queued distinct-hash fills                                                                                                 |
-| `BLOB_CACHE_WAITERS`    | `32`                     | Total waiting requests, including same-hash followers                                                                      |
+| `BLOB_CACHE_PENDING`    | `512`                    | Queued distinct-hash fills, scheduled round-robin by publisher                                                               |
+| `BLOB_CACHE_WAITERS`    | `1024`                   | Total cold waiting requests (including retiring jobs); also the separate warm reader queue capacity                          |
+| `BLOB_CACHE_PER_FILL_WAITERS` | `32`               | Cold requests per hash, including coalesced and retiring-job waiters                                                         |
+| `BLOB_QUEUE_TIMEOUT_MS` | `120000`                 | Maximum wait per queued fill, retiring-job wait or local reader admission (2 minutes)                                        |
 | `BLOB_CACHE_SOURCES`    | `3`                      | Source attempts per fill                                                                                                   |
 | `BLOB_CACHE_ENTRIES`    | `4096`                   | Completed-file LRU metadata entries                                                                                        |
 | `BLOB_CACHE_READERS`    | `128`                    | Simultaneous local response streams                                                                                        |

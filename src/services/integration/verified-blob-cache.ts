@@ -12,6 +12,190 @@ const encode = (text: string) => new TextEncoder().encode(text);
 const sources = () => Promise.resolve(["https://fixture.example/blob"]);
 const request = { publisher: "alice", sources };
 
+Deno.test("verified cache: 217 cold dependencies, three visitors, fair competitors and warm reader burst", () =>
+  fixture(async (cache, _directory, options) => {
+    const gate = deferred<void>();
+    const bodies = Array.from(
+      { length: 219 },
+      (_, i) => `${i}:` + "x".repeat(128 * 1024),
+    );
+    const hashes = bodies.map(hash);
+    const starts: number[] = [];
+    const calls = new Map<number, number>();
+    globalThis.fetch = (input) => {
+      const index = Number(new URL(String(input)).pathname.slice(1));
+      calls.set(index, (calls.get(index) ?? 0) + 1);
+      return Promise.resolve(new Response(bodies[index]));
+    };
+    const read = async (index: number, publisher = "alice") => {
+      const response = await cache.response(hashes[index], {
+        publisher,
+        sources: async () => {
+          starts.push(index);
+          assertEquals(cache.metrics.active <= 2, true);
+          assertEquals(cache.metrics.reserved <= 2 * options.maxFileSize, true);
+          assertEquals(
+            cache.metrics.bytes + cache.metrics.reserved <= options.quota,
+            true,
+          );
+          await gate.promise;
+          return [`https://fixture.example/${index}`];
+        },
+      });
+      assertEquals(response?.status, 200);
+      assertEquals(await response?.text(), bodies[index]);
+    };
+    const visitors = Array.from(
+      { length: 3 },
+      () => Array.from({ length: 217 }, (_, i) => read(i)),
+    ).flat();
+    const competitors = [read(217, "bob"), read(218, "carol")];
+    assertEquals(cache.metrics.active, 2);
+    assertEquals(cache.metrics.pending, 217);
+    assertEquals(cache.metrics.waiters, 653);
+    gate.resolve();
+    await Promise.all([...visitors, ...competitors]);
+    assertEquals(calls.size, 219);
+    assertEquals([...calls.values()].every((count) => count === 1), true);
+    assertEquals(starts.indexOf(217) <= 3, true);
+    assertEquals(starts.indexOf(218) <= 4, true);
+    assertEquals(cache.metrics.waiters, 0);
+    assertEquals(cache.metrics.pending, 0);
+    // Each stream is larger than the auto-pull buffer: admission must wait,
+    // rather than opening 217 files or rejecting reads beyond the FD bound.
+    const warm = hashes.slice(0, 217).map((hash) =>
+      cache.response(hash, request)
+    );
+    assertEquals(cache.metrics.readers, 128);
+    assertEquals(cache.metrics.readerWaiters, 89);
+    await Promise.all(warm.map(async (response, i) => {
+      assertEquals(await (await response)?.text(), bodies[i]);
+      assertEquals(cache.metrics.readers <= 128, true);
+    }));
+    assertEquals(cache.metrics.readers, 0);
+    assertEquals(cache.metrics.readerWaiters, 0);
+    assertEquals(cache.metrics.reserved, 0);
+  }, {
+    quota: 64 * 1024 * 1024,
+    maxFileSize: 256 * 1024,
+    entries: 512,
+    pending: 512,
+    waiters: 1024,
+    readers: 128,
+    queueTimeout: 120_000,
+    stallTimeout: 10_000,
+  }));
+
+Deno.test("verified cache: queue deadline and separate same-hash bounds clean admission", () =>
+  fixture(async (cache) => {
+    const abort = new AbortController();
+    const blocked = {
+      ...request,
+      signal: abort.signal,
+      sources: () => new Promise<string[]>(() => {}),
+    };
+    const first = cache.response(hash("first"), blocked);
+    const follower = cache.response(hash("first"), blocked);
+    await assertRejects(
+      () => cache.response(hash("first"), request),
+      CacheAdmissionError,
+      "Per-fill",
+    );
+    const expired = cache.response(hash("expired"), request);
+    await assertRejects(() => expired, CacheAdmissionError, "queue deadline");
+    assertEquals(cache.metrics.pending, 0);
+    assertEquals(cache.metrics.waiters, 2);
+    const cancelled = new AbortController();
+    const queued = cache.response(hash("cancelled"), {
+      ...request,
+      signal: cancelled.signal,
+    });
+    cancelled.abort();
+    await assertRejects(() => queued);
+    assertEquals(cache.metrics.pending, 0);
+    abort.abort();
+    await Promise.all([
+      assertRejects(() => first),
+      assertRejects(() => follower),
+    ]);
+    assertEquals(cache.metrics.waiters, 0);
+  }, { fills: 1, perFillWaiters: 2, queueTimeout: 30 }));
+
+Deno.test("verified cache: default 512-job and 1024-waiter overload bounds", () =>
+  fixture(async (cache) => {
+    const abort = new AbortController();
+    const blocked = {
+      ...request,
+      signal: abort.signal,
+      sources: () => new Promise<string[]>(() => {}),
+    };
+    const hashes = Array.from({ length: 515 }, (_, i) => hash(String(i)));
+    const pending = hashes.slice(0, 514).map((hash) =>
+      cache.response(hash, blocked).catch((error) => error)
+    );
+    assertEquals(cache.metrics.active, 2);
+    assertEquals(cache.metrics.pending, 512);
+    await assertRejects(
+      () => cache.response(hashes[514], blocked),
+      CacheAdmissionError,
+      "queue full",
+    );
+    pending.push(
+      ...hashes.slice(0, 510).map((hash) =>
+        cache.response(hash, blocked).catch((error) => error)
+      ),
+    );
+    assertEquals(cache.metrics.waiters, 1024);
+    await assertRejects(
+      () => cache.response(hashes[0], blocked),
+      CacheAdmissionError,
+      "Fill waiters full",
+    );
+    assertEquals(cache.metrics.reserved <= 512, true);
+    abort.abort();
+    await Promise.all(pending);
+    assertEquals(cache.metrics.pending, 0);
+    assertEquals(cache.metrics.waiters, 0);
+  }, { pending: 512, waiters: 1024 }));
+
+Deno.test("verified cache: bounded warm admission, abort, deadline and shutdown cleanup", () =>
+  fixture(async (cache) => {
+    const body = "x".repeat(200_000);
+    globalThis.fetch = () => Promise.resolve(new Response(body));
+    const first = await cache.response(hash(body), request);
+    const abort = new AbortController();
+    const second = cache.response(hash(body), {
+      ...request,
+      signal: abort.signal,
+    });
+    await assertRejects(
+      () => cache.response(hash(body), request),
+      CacheAdmissionError,
+      "reader queue",
+    );
+    abort.abort();
+    await assertRejects(() => second);
+    await assertRejects(
+      () => cache.response(hash(body), request),
+      CacheAdmissionError,
+      "Reader queue deadline",
+    );
+    assertEquals(cache.metrics.readerWaiters, 0);
+    const last = cache.response(hash(body), request);
+    const rejected = assertRejects(() => last, CacheAdmissionError);
+    await cache.close();
+    await rejected;
+    await first?.body?.cancel().catch(() => {});
+    assertEquals(cache.metrics.readerWaiters, 0);
+    assertEquals(cache.metrics.readers, 0);
+  }, {
+    quota: 400_000,
+    maxFileSize: 200_000,
+    readers: 1,
+    waiters: 1,
+    queueTimeout: 30,
+  }));
+
 Deno.test("verified cache: per-request timing, coalescing, cold and warm HTTP attribution", () =>
   fixture(async (cache) => {
     const started = deferred<void>();
@@ -211,6 +395,8 @@ async function fixture(
     fills: 2,
     pending: 16,
     waiters: 32,
+    perFillWaiters: 32,
+    queueTimeout: 2000,
     sources: 3,
     entries: 8,
     readers: 8,
@@ -429,7 +615,13 @@ Deno.test("verified cache: LRU eviction, active pins, metadata and reader limits
     assertEquals(cache.metrics.evictions, 1);
     assertEquals(cache.metrics.bytes, 1);
     assertEquals(cache.metrics.readers, 0);
-  }, { quota: 200_000, maxFileSize: 200_000, entries: 1, readers: 1 }));
+  }, {
+    quota: 200_000,
+    maxFileSize: 200_000,
+    entries: 1,
+    readers: 1,
+    queueTimeout: 30,
+  }));
 
 Deno.test("verified cache: size, encoding, truncation, stall and whole-fill limits clean temporary files", () =>
   fixture(async (cache, directory) => {
@@ -587,6 +779,8 @@ Deno.test("verified cache: unsafe directory and symlink entries are refused", as
     fills: 2,
     pending: 16,
     waiters: 32,
+    perFillWaiters: 32,
+    queueTimeout: 2000,
     sources: 3,
     entries: 8,
     readers: 8,
@@ -693,10 +887,24 @@ Deno.test("verified cache: immediate replacement waits for aborted same-hash cle
         ...request,
         signal: cancelled.signal,
       });
+      await assertRejects(
+        () => cache.response(hash("verified"), request),
+        CacheAdmissionError,
+        "Per-fill",
+      );
       cancelled.abort();
       await assertRejects(() => within(follower));
       assertEquals(calls, 1);
       assertEquals(cache.metrics.active, 1);
+      await assertRejects(
+        () => replacement!,
+        CacheAdmissionError,
+        "Retiring fill queue deadline",
+      );
+      assertEquals(cache.metrics.waiters, 0);
+      assertEquals(cache.metrics.active, 1);
+      assertEquals(calls, 1);
+      replacement = cache.response(hash("verified"), request);
       releaseCleanup.resolve();
       assertEquals(await (await within(replacement))?.text(), "verified");
       assertEquals(calls, 2);
@@ -711,7 +919,7 @@ Deno.test("verified cache: immediate replacement waits for aborted same-hash cle
         () => {},
       );
     }
-  }));
+  }, { perFillWaiters: 2, queueTimeout: 30 }));
 
 Deno.test("verified cache: discovery deadline releases admission and ignores late settlement", () =>
   fixture(async (cache) => {

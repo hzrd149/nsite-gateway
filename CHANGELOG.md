@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Support large cold-app preload bursts with 512 queued fills, 1024 global cold
+  waiters, a separate 32-request per-hash cap, publisher-round-robin dispatch and
+  a configurable 120-second queue deadline. Active fills remain limited to two,
+  with disk reserved only on dispatch.
+- Queue warm reads behind the existing 128-reader bound (up to 1024 waiting
+  requests), with deadline, cancellation and shutdown cleanup.
+
 ### Patch Changes
 
 - Fix flaky HTTP disconnect integration tests by accepting both body
