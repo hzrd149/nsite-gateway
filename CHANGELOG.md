@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 3.8.0
+
+### Minor Changes
+
 - Store visit counts and serve logs in a dedicated SQLite stats database
   (`STATS_PATH`, default `./data/stats.db`) instead of the KV cache, so clearing
   the cache keeps them. Existing KV stats are imported once on startup. Daily
@@ -15,6 +19,9 @@
 - Render the home, trending, site and author pages immediately after a restart
   from a saved directory snapshot and author names, until relays re-sync. The
   last relay sync time and profile lookup times also survive restarts.
+
+### Patch Changes
+
 - Fix lost visit counts and serve-log records on graceful shutdown: buffered
   stats are now flushed before the KV store closes.
 
