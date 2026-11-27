@@ -1,4 +1,4 @@
-import { assertEquals } from "jsr:@std/assert";
+import { assertEquals, assertThrows } from "jsr:@std/assert";
 import { DatabaseSync } from "node:sqlite";
 import type { IndexedSite } from "../site-index.ts";
 import {
@@ -53,6 +53,13 @@ Deno.test("migrate is idempotent", () => {
     user_version: number;
   };
   assertEquals(row.user_version, 1);
+  db.close();
+});
+
+Deno.test("migrate refuses a database from a newer gateway", () => {
+  const db = open();
+  db.exec("PRAGMA user_version = 999");
+  assertThrows(() => migrate(db), Error, "newer than this gateway supports");
   db.close();
 });
 
@@ -260,7 +267,11 @@ Deno.test("legacy KV stats are imported once and deleted", async () => {
 
   const result = await importLegacyKvStats(db, kv, 300, NOW);
   assertEquals(result, { totals: 1, days: 1, serveLogs: 2 });
-  assertEquals(readSiteTotals(db, "p", "blog").views, 7);
+  const imported = readSiteTotals(db, "p", "blog");
+  assertEquals(imported.views, 7);
+  // History before the import is unknown, so no "since" date is claimed
+  assertEquals(imported.firstSeenAt, undefined);
+  assertEquals(imported.lastSeenAt, undefined);
   assertEquals(
     readDailyViews(db, 2, Date.UTC(2026, 10, 25)).get("p:blog"),
     [3, 0],
@@ -270,5 +281,12 @@ Deno.test("legacy KV stats are imported once and deleted", async () => {
   assertEquals([...store.values()].map((e) => e.key), [["dns", "example.com"]]);
 
   assertEquals(await importLegacyKvStats(db, kv, 300, NOW), undefined);
+
+  // Later activity sets last-seen but keeps first-seen unknown
+  applySiteDeltas(db, [
+    { day: dayKey(NOW), pubkey: "p", identifier: "blog", counts: { views: 1 } },
+  ], NOW);
+  assertEquals(readSiteTotals(db, "p", "blog").firstSeenAt, undefined);
+  assertEquals(readSiteTotals(db, "p", "blog").lastSeenAt, NOW);
   db.close();
 });

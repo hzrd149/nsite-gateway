@@ -21,7 +21,10 @@ export function lastDayKeys(days: number, now = Date.now()): string[] {
   return keys;
 }
 
-/** Ordered schema migrations; index + 1 is the resulting `user_version` */
+/**
+ * Ordered schema migrations; index + 1 is the resulting `user_version`.
+ * Released migrations are append-only: never edit one, add a new entry.
+ */
 const MIGRATIONS: string[] = [
   `
   CREATE TABLE site_daily (
@@ -44,8 +47,9 @@ const MIGRATIONS: string[] = [
     requests INTEGER NOT NULL DEFAULT 0,
     not_found INTEGER NOT NULL DEFAULT 0,
     unavailable INTEGER NOT NULL DEFAULT 0,
-    first_seen_at INTEGER NOT NULL,
-    last_seen_at INTEGER NOT NULL,
+    -- NULL when unknown (totals imported from the legacy KV store)
+    first_seen_at INTEGER,
+    last_seen_at INTEGER,
     PRIMARY KEY (pubkey, identifier)
   ) WITHOUT ROWID;
 
@@ -64,7 +68,7 @@ const MIGRATIONS: string[] = [
   CREATE TABLE counters (
     name TEXT PRIMARY KEY,
     value INTEGER NOT NULL DEFAULT 0
-  );
+  ) WITHOUT ROWID;
 
   CREATE TABLE counters_daily (
     day TEXT NOT NULL,
@@ -73,24 +77,23 @@ const MIGRATIONS: string[] = [
     PRIMARY KEY (day, name)
   ) WITHOUT ROWID;
 
+  -- Rowid table: rows hold whole IndexedSite JSON documents
   CREATE TABLE directory_sites (
     key TEXT PRIMARY KEY,
-    pubkey TEXT NOT NULL,
-    identifier TEXT NOT NULL,
-    data TEXT NOT NULL,
-    updated_at INTEGER NOT NULL
+    data TEXT NOT NULL
   );
 
   CREATE TABLE profiles (
     pubkey TEXT PRIMARY KEY,
     name TEXT,
     checked_at INTEGER NOT NULL
-  );
+  ) WITHOUT ROWID;
 
+  -- Free-form key/value state; numbers are stored as text
   CREATE TABLE meta (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
-  );
+  ) WITHOUT ROWID;
   `,
 ];
 
@@ -100,6 +103,11 @@ export function migrate(db: DatabaseSync): void {
     | { user_version: number }
     | undefined;
   const version = row?.user_version ?? 0;
+  if (version > MIGRATIONS.length) {
+    throw new Error(
+      `Stats database schema v${version} is newer than this gateway supports (v${MIGRATIONS.length}); upgrade the gateway or use a different STATS_PATH`,
+    );
+  }
   for (let i = version; i < MIGRATIONS.length; i++) {
     transaction(db, () => {
       db.exec(MIGRATIONS[i]);
@@ -172,7 +180,7 @@ export function applySiteDeltas(
        (pubkey, identifier, ${columns}, first_seen_at, last_seen_at)
      VALUES (?, ?, ${placeholders}, ?, ?)
      ON CONFLICT (pubkey, identifier) DO UPDATE SET ${sums},
-       last_seen_at = max(last_seen_at, excluded.last_seen_at)`,
+       last_seen_at = max(coalesce(last_seen_at, 0), excluded.last_seen_at)`,
   );
   transaction(db, () => {
     for (const { day, pubkey, identifier, counts } of deltas) {
@@ -229,13 +237,16 @@ export function readSiteTotals(
     `SELECT ${SITE_COUNTER_FIELDS.join(", ")}, first_seen_at, last_seen_at
      FROM site_totals WHERE pubkey = ? AND identifier = ?`,
   ).get(pubkey, identifier) as
-    | (SiteCounters & { first_seen_at: number; last_seen_at: number })
+    | (SiteCounters & {
+      first_seen_at: number | null;
+      last_seen_at: number | null;
+    })
     | undefined;
   if (!row) return emptySiteCounters();
   const totals: SiteTotals = emptySiteCounters();
   for (const field of SITE_COUNTER_FIELDS) totals[field] = row[field];
-  totals.firstSeenAt = row.first_seen_at;
-  totals.lastSeenAt = row.last_seen_at;
+  totals.firstSeenAt = row.first_seen_at ?? undefined;
+  totals.lastSeenAt = row.last_seen_at ?? undefined;
   return totals;
 }
 
@@ -385,23 +396,13 @@ export function addMetaNumber(
 export function replaceDirectorySites(
   db: DatabaseSync,
   sites: IndexedSite[],
-  now = Date.now(),
 ): void {
   const insert = db.prepare(
-    `INSERT INTO directory_sites (key, pubkey, identifier, data, updated_at)
-     VALUES (?, ?, ?, ?, ?)`,
+    "INSERT INTO directory_sites (key, data) VALUES (?, ?)",
   );
   transaction(db, () => {
     db.exec("DELETE FROM directory_sites");
-    for (const site of sites) {
-      insert.run(
-        site.key,
-        site.pubkey,
-        site.identifier,
-        JSON.stringify(site),
-        now,
-      );
-    }
+    for (const site of sites) insert.run(site.key, JSON.stringify(site));
   });
 }
 
@@ -565,8 +566,7 @@ export async function importLegacyKvStats(
   }
 
   const insertTotal = db.prepare(
-    `INSERT INTO site_totals (pubkey, identifier, views, first_seen_at, last_seen_at)
-     VALUES (?, ?, ?, ?, ?)
+    `INSERT INTO site_totals (pubkey, identifier, views) VALUES (?, ?, ?)
      ON CONFLICT (pubkey, identifier) DO UPDATE SET views = views + excluded.views`,
   );
   const insertDay = db.prepare(
@@ -575,7 +575,7 @@ export async function importLegacyKvStats(
   );
   transaction(db, () => {
     for (const [, pubkey, identifier, views] of totals) {
-      insertTotal.run(pubkey, identifier, views, now, now);
+      insertTotal.run(pubkey, identifier, views);
     }
     for (const [, day, pubkey, identifier, views] of days) {
       insertDay.run(day, pubkey, identifier, views);
