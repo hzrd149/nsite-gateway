@@ -25,14 +25,13 @@ headers. Unknown-extension files use `application/octet-stream`.
 
 Fill dispatch is round-robin across publishers with queued work, FIFO within
 each publisher, independent of client IP or forwarded headers. Shared hashes
-occupy one job attributed to its creating publisher. Each
-active fill reserves `MAX_FILE_SIZE` bytes before contacting sources, so even
-unknown-length streams cannot exceed the logical-byte quota. `MAX_FILE_SIZE`
-must fit inside `BLOB_CACHE_BYTES`; full configured concurrency requires at
-least `MAX_FILE_SIZE * BLOB_CACHE_FILLS`. Queued fills reserve no disk.
-Active fills are not preempted, so large fills can delay small cold requests.
-For large artifacts, increase both
-the quota and whole-fill timeout as needed.
+occupy one job attributed to its creating publisher. Each active fill reserves
+`MAX_FILE_SIZE` bytes before contacting sources, so even unknown-length streams
+cannot exceed the logical-byte quota. `MAX_FILE_SIZE` must fit inside
+`BLOB_CACHE_BYTES`; full configured concurrency requires at least
+`MAX_FILE_SIZE * BLOB_CACHE_FILLS`. Queued fills reserve no disk. Active fills
+are not preempted, so large fills can delay small cold requests. For large
+artifacts, increase both the quota and whole-fill timeout as needed.
 
 Discovery and source-hint waits respect cancellation and the whole-fill
 deadline. Best-effort hint persistence also has a `BLOB_STALL_TIMEOUT_MS`
@@ -50,20 +49,23 @@ starts only on dispatch. Retiring-job waits have the same queue deadline.
 Warm GETs wait FIFO for a reader slot instead of rejecting a normal preload
 burst. At most 128 local streams are active; a separate queue holds at most 1024
 requests with the same queue deadline. Waiting readers pin verified files but
-open no files. HEAD/304 responses need no reader slot. Abort, timeout and shutdown
-release admission; stalled active streams retain the existing idle timeout.
+open no files. HEAD/304 responses need no reader slot. Abort, timeout and
+shutdown release admission; stalled active streams retain the existing idle
+timeout.
 
 The local fixture suite covers 217 distinct cold dependencies with three
 concurrent visitors and two competing publishers, plus 217 simultaneous warm
-reads (`deno task test:verified-cache`). This is burst capacity, not a throughput
-guarantee: two active fills must drain the queue within its deadline, and pinned
-files plus active reservations must fit the quota. A full queue can reject new
-publishers; round-robin fairness applies to admitted work, not reserved admission
-per identity. Increase timeouts only for intentionally longer waits.
+reads (`deno task test:verified-cache`). This is burst capacity, not a
+throughput guarantee: two active fills must drain the queue within its deadline,
+and pinned files plus active reservations must fit the quota. A full queue can
+reject new publishers; round-robin fairness applies to admitted work, not
+reserved admission per identity. Increase timeouts only for intentionally longer
+waits.
 
-Full queues, exhausted waiter limits, queue deadlines and unavailable disk reservations return
-503 with `Retry-After: 5` and `Cache-Control: no-store`. Failed sources return
-502 when no verified copy is obtainable. There is no unverified fallback.
+Full queues, exhausted waiter limits, queue deadlines and unavailable disk
+reservations return 503 with `Retry-After: 5` and `Cache-Control: no-store`.
+Failed sources return 502 when no verified copy is obtainable. There is no
+unverified fallback.
 
 ### Persistence and ownership
 
@@ -87,9 +89,8 @@ in the `nsite_cache` volume.
 
 Deno KV caches DNS resolution (hostname to public key and site identifier), blob
 source hints and server lists. Analytics are kept in the separate
-[stats database](#persistent-stats). Set
-`CACHE_PATH=./data/cache` for an explicit database location; otherwise Deno uses
-its default local KV location.
+[stats database](#persistent-stats). Set `CACHE_PATH=./data/cache` for an
+explicit database location; otherwise Deno uses its default local KV location.
 
 Fetched Nostr events remain in the in-memory event store for the process
 lifetime. Set `CACHE_RELAYS=ws://localhost:4869` to persist them through a cache
@@ -172,9 +173,9 @@ Startup logs print limits as compact `key=value` fields. Once per minute,
 failures, corrupt responses, evictions, rejections, bytes, reservations, active
 fills, pending jobs, waiters and readers. Source failures include the hash
 prefix, source origin and reason. `DEBUG=nsite:*` enables admission diagnostics.
-The gateway's [`/health`](routing.md#gateway-pages) endpoint also exposes
-live verified blob cache metrics, plus `firstStartedAt`, `totalUptime`,
-cumulative `requests` counters and `blobCacheTotals` from the
+The gateway's [`/health`](routing.md#gateway-pages) endpoint also exposes live
+verified blob cache metrics, plus `firstStartedAt`, `totalUptime`, cumulative
+`requests` counters and `blobCacheTotals` from the
 [stats database](#persistent-stats).
 
 Every response-ready request log includes host/path, HTTP status and:

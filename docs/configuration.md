@@ -129,24 +129,24 @@ Preferred sources and proxies never bypass blob verification.
 
 ## Caches
 
-| Variable                | Default                  | Description                                                                                                                |
-| ----------------------- | ------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
-| `CACHE_PATH`            | Deno default KV location | Persistent metadata database path, e.g. `./data/cache`                                                                     |
-| `CACHE_TIME`            | `3600`                   | General KV cache lifetime, seconds                                                                                         |
-| `SITE_CACHE_MAX_AGE`    | `3600`                   | Browser/shared-cache freshness, non-negative integer seconds; `0` requires revalidation                                    |
-| `SITE_LOADING_PAGE`     | `true`                   | Show browsers a temporary loading page while a cold site is fetched; `false` disables ([details](caching.md#loading-page)) |
-| `BLOB_CACHE_DIR`        | `./data/blobs`           | Private owned directory; one process per directory                                                                         |
-| `BLOB_CACHE_BYTES`      | `1073741824`             | Logical byte budget including active fill reservations (1 GiB)                                                             |
-| `BLOB_CACHE_FILLS`      | `2`                      | Concurrent fills                                                                                                           |
-| `BLOB_CACHE_PENDING`    | `512`                    | Queued distinct-hash fills, scheduled round-robin by publisher                                                               |
-| `BLOB_CACHE_WAITERS`    | `1024`                   | Total cold waiting requests (including retiring jobs); also the separate warm reader queue capacity                          |
-| `BLOB_CACHE_PER_FILL_WAITERS` | `32`               | Cold requests per hash, including coalesced and retiring-job waiters                                                         |
-| `BLOB_QUEUE_TIMEOUT_MS` | `120000`                 | Maximum wait per queued fill, retiring-job wait or local reader admission (2 minutes)                                        |
-| `BLOB_CACHE_SOURCES`    | `3`                      | Source attempts per fill                                                                                                   |
-| `BLOB_CACHE_ENTRIES`    | `4096`                   | Completed-file LRU metadata entries                                                                                        |
-| `BLOB_CACHE_READERS`    | `128`                    | Simultaneous local response streams                                                                                        |
-| `BLOB_FILL_TIMEOUT_MS`  | `600000`                 | Whole active fill deadline across retries (10 minutes)                                                                     |
-| `BLOB_STALL_TIMEOUT_MS` | `30000`                  | Upstream inactivity and local response-consumption idle timeout                                                            |
+| Variable                      | Default                  | Description                                                                                                                |
+| ----------------------------- | ------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| `CACHE_PATH`                  | Deno default KV location | Persistent metadata database path, e.g. `./data/cache`                                                                     |
+| `CACHE_TIME`                  | `3600`                   | General KV cache lifetime, seconds                                                                                         |
+| `SITE_CACHE_MAX_AGE`          | `3600`                   | Browser/shared-cache freshness, non-negative integer seconds; `0` requires revalidation                                    |
+| `SITE_LOADING_PAGE`           | `true`                   | Show browsers a temporary loading page while a cold site is fetched; `false` disables ([details](caching.md#loading-page)) |
+| `BLOB_CACHE_DIR`              | `./data/blobs`           | Private owned directory; one process per directory                                                                         |
+| `BLOB_CACHE_BYTES`            | `1073741824`             | Logical byte budget including active fill reservations (1 GiB)                                                             |
+| `BLOB_CACHE_FILLS`            | `2`                      | Concurrent fills                                                                                                           |
+| `BLOB_CACHE_PENDING`          | `512`                    | Queued distinct-hash fills, scheduled round-robin by publisher                                                             |
+| `BLOB_CACHE_WAITERS`          | `1024`                   | Total cold waiting requests (including retiring jobs); also the separate warm reader queue capacity                        |
+| `BLOB_CACHE_PER_FILL_WAITERS` | `32`                     | Cold requests per hash, including coalesced and retiring-job waiters                                                       |
+| `BLOB_QUEUE_TIMEOUT_MS`       | `120000`                 | Maximum wait per queued fill, retiring-job wait or local reader admission (2 minutes)                                      |
+| `BLOB_CACHE_SOURCES`          | `3`                      | Source attempts per fill                                                                                                   |
+| `BLOB_CACHE_ENTRIES`          | `4096`                   | Completed-file LRU metadata entries                                                                                        |
+| `BLOB_CACHE_READERS`          | `128`                    | Simultaneous local response streams                                                                                        |
+| `BLOB_FILL_TIMEOUT_MS`        | `600000`                 | Whole active fill deadline across retries (10 minutes)                                                                     |
+| `BLOB_STALL_TIMEOUT_MS`       | `30000`                  | Upstream inactivity and local response-consumption idle timeout                                                            |
 
 Disk-cache counts, byte budget and timeouts must be positive integers.
 `MAX_FILE_SIZE` must fit within `BLOB_CACHE_BYTES`; full configured concurrency

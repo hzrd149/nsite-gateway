@@ -1,7 +1,7 @@
 # Contributing
 
-Start with the [README](README.md) for the project overview.
-Read [AGENTS.md](AGENTS.md) for repository-specific working instructions.
+Start with the [README](README.md) for the project overview. Read
+[AGENTS.md](AGENTS.md) for repository-specific working instructions.
 
 ## Development setup
 
